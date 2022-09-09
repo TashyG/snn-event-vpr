@@ -14,22 +14,33 @@ from torch.utils.data import Dataset, DataLoader
 import IPython.display as display
 from matplotlib import animation
 import matplotlib.pyplot as plt
+from scipy import interpolate
 
 from utils import (
     load_event_streams,
     sync_event_streams,
     get_short_traverse_name,
     get_gps,
-    print_duration
+    print_duration,
+    interpolate_gps
 )
 from constants import brisbane_event_traverses, path_to_gps_files
 
   
 train_traverse = brisbane_event_traverses[0]
-test_traverse = brisbane_event_traverses[1]
-  
+test_traverse = brisbane_event_traverses[4]
+train_gps_locations = None  
 
 def chopData(event_stream, start_seconds, end_seconds, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
+
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
     stream_start_time  = event_stream['t'].iloc[0]
 
     chop_start = stream_start_time + start_seconds*1000000
@@ -48,6 +59,21 @@ def chopData(event_stream, start_seconds, end_seconds, max_spikes):
 
 
 def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, place_duration, max_spikes):
+    """
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
+
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param num_places: The number of place samples to extract (starting from the start of the event stream)
+    :param place_gap: The time gap in seconds between the start of each place sample
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples
+    :return: The start times of each place sample
+    """ 
+
     # Subselect 34 x 34 pixels evenly spaced out - Create the filters
     filter0x = event_stream['x'].isin(x_select)
     filter0y = event_stream['y'].isin(y_select)
@@ -66,11 +92,18 @@ def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, p
 
     # Divide the test stream into 2 second windows
     sub_streams = []
+    start_times = []
     for i in range(0,num_places):
         sub_streams.append(chopData(event_stream, i*place_gap, i*place_gap + place_duration, max_spikes))
+        start_times.append(i*place_gap*1000000)
 
-    return sub_streams 
+    return sub_streams, start_times
 
+def get_testing_labels(test_gps_locations):
+    global train_gps_locations
+
+    print(train_gps_locations)
+    print(test_gps_locations)
 
 
 class BrisbaneVPRDataset(Dataset):
@@ -99,6 +132,7 @@ class BrisbaneVPRDataset(Dataset):
         transform=None,
     ):
         super(BrisbaneVPRDataset, self).__init__()
+        global train_gps_locations
         total_x_pixels = 346
         total_y_pixels = 260
 
@@ -125,31 +159,46 @@ class BrisbaneVPRDataset(Dataset):
             print_duration(event_streams[0])
 
             # Get the place samples 
-            sub_streams0 = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
+            sub_streams, start_times = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
+            
+            # Get the interpolated reference gps locations at each start time
+            train_gps_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
 
-            self.samples = sub_streams0 
+            self.samples = sub_streams
             print("The number of training substreams is: " + str(len(self.samples)))
             
             
         else:
+            #assert train_gps_locations is not None, "Training data must be loaded first"
             print("Loading testing event streams ...")
             gps_gt = []
             if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
                 tqdm.write("Adding GPS")
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
-
+            print(gps_gt[0])
+            # Find the closest  GPS locations to the training locations
+            gps_gt = gps_gt[0]
+            test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
+            print(test_gps_locations)
             # Load the test stream
-            event_streams = load_event_streams([test_traverse])
-            event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
+            # event_streams = load_event_streams([test_traverse])
+            # event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
 
-            # Print length of full stream
-            print_duration(event_streams[0])
+            # # Print length of full stream
+            # print_duration(event_streams[0])
 
-            # Get the place samples 
-            sub_streams = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
+            # # Get the place samples 
+            # sub_streams, start_times = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
 
-            self.samples = sub_streams
-            print("The number of testing substreams is: " + str(len(self.samples)))
+            # # Get the interpolated query gps locations at each start time
+            # test_gps_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
+
+            # # Find the ground truth labels for the testing dataset based on the training dataset
+            # #testing_labels = 
+            # get_testing_labels(test_gps_locations)
+
+            # self.samples = sub_streams
+            # print("The number of testing substreams is: " + str(len(self.samples)))
 
         self.place_duration = place_duration # The duration of a place in seconds 
         self.place_gap = place_gap # The time between each place window
@@ -203,8 +252,8 @@ class BrisbaneVPRDataset(Dataset):
 
 
 # Ultimate test- loading the data
-training_set = BrisbaneVPRDataset(train=True)
-#testing_set  = BrisbaneVPRDataset(train=False)
+#training_set = BrisbaneVPRDataset(train=True)
+testing_set  = BrisbaneVPRDataset(train=False)
             
 # train_loader = DataLoader(dataset=training_set, batch_size=32, shuffle=True)
 # test_loader  = DataLoader(dataset=testing_set , batch_size=32, shuffle=True)
