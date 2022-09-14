@@ -29,9 +29,8 @@ from utils import (
 from constants import brisbane_event_traverses, path_to_gps_files
 
   
-train_traverse = brisbane_event_traverses[0]
+train_traverse = brisbane_event_traverses[3]
 test_traverse = brisbane_event_traverses[4]
-train_gps_locations = None  
 
 def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     """
@@ -60,7 +59,7 @@ def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     return chopped_stream
 
 
-def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, place_duration, max_spikes):
+def filter_and_divide_training(event_stream, x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes):
     """
     Filters a long event stream to have only select pixels in the data and
     then divides the stream up into multiple substreams
@@ -69,11 +68,11 @@ def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, p
     :param x_select: The x pixel positions to be included (all others are fitlered out)
     :param y_select: The y pixel positions to be included (all others are filtered out)
     :param num_places: The number of place samples to extract (starting from the start of the event stream)
+    :param start_time: Time at which to start extracting place samples in seconds
     :param place_gap: The time gap in seconds between the start of each place sample
     :param place_duration: The duration of each place sample in seconds
     :param max_spikes: The maximum number of spikes that can be in a place sample
-    :return: The filtered substreams/place samples
-    :return: The start times of each place sample
+    :return: The filtered substreams/place samples & The start times of each place sample
     """ 
 
     # Subselect 34 x 34 pixels evenly spaced out - Create the filters
@@ -96,187 +95,58 @@ def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, p
     sub_streams = []
     start_times = []
     for i in range(0,num_places):
-        sub_streams.append(chopData(event_stream, i*place_gap, i*place_gap + place_duration, max_spikes))
-        start_times.append(i*place_gap*1000000)
+        sub_streams.append(chopData(event_stream, start_time + i*place_gap, start_time + i*place_gap + place_duration, max_spikes))
+        start_times.append((start_time + i*place_gap))
 
     return sub_streams, start_times
 
-def get_testing_labels(gps_gt):
-    global train_gps_locations
-
-    # Get the test gps locations 
-    test_gps_locations = interpolate_gps(gps_gt)[:, :2]
-    #test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
-
-    # For each training location find the closet test location 
-    
-    
-
-    # Get initial list of 
-
-def plot_gps(train_gps, test_gps):
-    # gps locations (one for each second)
-    train_locations = interpolate_gps(train_gps)[:, :2]
-    test_locations = interpolate_gps(test_gps)[:, :2]
-
-    #plt.figure()
-
-    x_tr, y_tr = train_locations.T
-    x_te, y_te = test_locations.T
-
-    plt.plot(x_tr, y_tr, 'r-')
-    plt.plot(x_te, y_te, 'k-')
-    plt.show()
-
-class BrisbaneVPRDataset(Dataset):
-    """NMNIST dataset method
-    Parameters
-    ----------
-    train : bool, optional
-        train/test flag, by default True
-    sampling_time : int, optional
-        sampling time of event data, by default 2
-    stream_length : int, optional
-        the length in seconds of traversal that you want to use
-    transform : None or lambda or fx-ptr, optional
-        transformation method. None means no transform. By default None.
+def filter_and_divide_testing(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
     """
-    def __init__(
-        self,
-        train=True,
-        sampling_time=1, 
-        samples_per_sec = 1000,
-        num_places = 30,
-        place_gap=2, 
-        place_duration = 0.5,
-        max_spikes=None,
-        subselect_num = 34,
-        transform=None,
-    ):
-        super(BrisbaneVPRDataset, self).__init__()
-        global train_gps_locations
-        total_x_pixels = 346
-        total_y_pixels = 260
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
 
-        x_space = total_x_pixels/subselect_num
-        y_space = total_y_pixels/subselect_num
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param start_times: Times at which to start extracting place samples in seconds
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples
+    """ 
 
-        # Subselect 34 x 34 pixels evenly spaced out - Create a filter
-        x_select  = [int(i*x_space + x_space/2) for i in range(subselect_num)]
-        y_select  = [int(i*y_space + y_space/2) for i in range(subselect_num)]
+    # Subselect 34 x 34 pixels evenly spaced out - Create the filters
+    filter0x = event_stream['x'].isin(x_select)
+    filter0y = event_stream['y'].isin(y_select)
 
+    # Apply the filters
+    event_stream = event_stream[filter0x & filter0y]
 
-        if train:
-            print("Loading training event streams ...")
-            gps_gt = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"):
-                tqdm.write("Adding GPS")
-                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"))
+    # Now reset values to be between 0 and 33
+    for i, x in zip(range(34), x_select):
+        small_filt0x  = event_stream['x'].isin([x])
+        event_stream['x'].loc[small_filt0x] = i
 
-            # Load the training stream
-            event_streams = load_event_streams([train_traverse])
-            event_streams = sync_event_streams(event_streams, [train_traverse], gps_gt)
+    for i, y in zip(range(34), y_select):
+        small_filt0y  = event_stream['y'].isin([y])
+        event_stream['y'].loc[small_filt0y] = i
 
-            # Print length of full stream
-            print_duration(event_streams[0])
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    for start_time in start_times:
+        sub_streams.append(chopData(event_stream, start_time, start_time + place_duration, max_spikes))
 
-            # Get the place samples 
-            sub_streams, start_times = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
-            
-            # Get the interpolated reference gps locations at each start time
-            train_gps_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
-
-            self.samples = sub_streams
-            print("The number of training substreams is: " + str(len(self.samples)))
-            
-            
-        else:
-            #assert train_gps_locations is not None, "Training data must be loaded first"
-            print("Loading testing event streams ...")
-            gps_gt = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
-                tqdm.write("Adding GPS")
-                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
-            print(gps_gt[0])
-            
-            # Find the closest  GPS locations to the training locations
-            # gps_gt = gps_gt[0]
-            # test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
-            # print(test_gps_locations)
-            
-            # Load the test stream
-            # event_streams = load_event_streams([test_traverse])
-            # event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
-
-            # # Print length of full stream
-            # print_duration(event_streams[0])
-
-            # # Get the place samples 
-            # sub_streams, start_times = filter_and_divide(event_streams[0], x_select, y_select, num_places, place_gap, place_duration, max_spikes)
-
-            # # Get the interpolated query gps locations at each start time
-            # test_gps_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
-
-            # # Find the ground truth labels for the testing dataset based on the training dataset
-            # #testing_labels = 
-            # get_testing_labels(test_gps_locations)
-
-            # self.samples = sub_streams
-            # print("The number of testing substreams is: " + str(len(self.samples)))
-
-        self.place_duration = place_duration # The duration of a place in seconds 
-        self.place_gap = place_gap # The time between each place window
-        self.num_places = num_places
-        self.sampling_time = sampling_time # Default sampling time is 1
-        self.samples_per_sec = samples_per_sec
-        self.transform = transform
-        self.subselect_num = subselect_num
-        #self.num_time_bins = int(sample_length/sampling_time)
-       
-
-    def __getitem__(self, i):
-
-        # Find the place label
-        #num_places = self.stream_length/self.place_gap
-        label = int(i % (self.num_places))
-        #print("The sample number is: " + str(i) + " with a label of: " + str(label))
-
-        # Find the sample length and number of time bins
-        time_divider = int(1000000/self.samples_per_sec)
-        num_time_bins = int(self.place_duration*self.samples_per_sec)
-
-        #sample_length = len(self.samples[i])
-        #num_time_bins = int(sample_length/self.sampling_time)
-        #print("The sample Length is " + str(num_time_bins))
-
-        # Turn the sample stream into events
-        x_event = self.samples[i]['x'].to_numpy()
-        y_event = self.samples[i]['y'].to_numpy()
-        c_event = self.samples[i]['p'].to_numpy()
-        t_event = self.samples[i]['t'].to_numpy()
-        # print(num_time_bins)
-        # print(t_event/100)
-        #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
-        event = slayer.io.Event(x_event, y_event, c_event, t_event/time_divider)
-
-        # Transform event
-        if self.transform is not None:
-            event = self.transform(event)
-
-        # Turn the events into a tensor 
-        spike = event.fill_tensor(
-                torch.zeros(2, self.subselect_num, self.subselect_num, num_time_bins),
-                sampling_time=self.sampling_time,
-            )
-        
-        return spike.reshape(-1, num_time_bins), label
-
-    def __len__(self):
-        return len(self.samples)
-
-
+    return sub_streams
 
 def find_closest_matches(training_locations, test_gps_data):
+    """
+    Finds the closest matching GPS locations (and their corresponding times) in the 
+    testing data to the selected GPS locations in the training data
+
+    :param training_locations: the lat and long coords of the chosen places in the training data 
+    :param test_gps_data: the gps data of the test dataset 
+    :return: the times of the estimated closest matches and their gps coords
+    """ 
+
     # Separate test gps coordinates and times
     test_locations = test_gps_data[:, :2]
     test_times = test_gps_data[:,2]
@@ -285,7 +155,7 @@ def find_closest_matches(training_locations, test_gps_data):
     distance_matrix = cdist(training_locations, test_locations)
     closest_inds = np.argsort(distance_matrix,axis=1)[:,:2]
     closest_ranges = test_times[closest_inds]
-
+    
     # Search between the closest gps locations for a more accurate match
     times = []
     closest_test_locs = []
@@ -306,46 +176,159 @@ def find_closest_matches(training_locations, test_gps_data):
 
     return times, np.array(closest_test_locs)
 
-print("Loading training event streams ...")
-train_gps = []
-if os.path.isfile(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"):
-    tqdm.write("Adding GPS")
-    train_gps.append(get_gps(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"))
+
+def plot_gps(training_locations, testing_locations):
+    x_tr, y_tr = training_locations.T
+    x_te, y_te = testing_locations.T
+
+    plt.scatter(x_tr, y_tr, marker='x')
+    plt.scatter(x_te, y_te, marker='x', color='r')
+
+    plt.savefig(path_to_gps_files)
 
 
-print("Loading testing event streams ...")
-test_gps = []
-if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
-    tqdm.write("Adding GPS")
-    test_gps.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
 
-#plot_gps(train_gps[0], test_gps[0])
+class BrisbaneVPRDataset(Dataset):
+    """NMNIST dataset method
+    Parameters
+    ----------
+    train : bool, optional
+        train/test flag, by default True
+    sampling_time : int, optional
+        sampling time of event data, by default 2
+    stream_length : int, optional
+        the length in seconds of traversal that you want to use
+    transform : None or lambda or fx-ptr, optional
+        transformation method. None means no transform. By default None.
+    """
+    def __init__(
+        self,
+        train=True,
+        training_locations=None, 
+        sampling_time=1, 
+        samples_per_sec = 1000,
+        num_places = 30,
+        start_time = 0,
+        place_gap=2, 
+        place_duration = 0.5,
+        max_spikes=None,
+        subselect_num = 34,
+        transform=None,
+    ):
+        super(BrisbaneVPRDataset, self).__init__()
 
-# gps locations (one for each second)
-train_locations = interpolate_gps(train_gps[0])[:, :2]
-selected_train_locs = train_locations[100:130, :]
+        # Check input parameters 
 
-test_times, closest_locations = find_closest_matches(selected_train_locs, test_gps[0])
+        total_x_pixels = 346
+        total_y_pixels = 260
 
-print(closest_locations)
-#plt.figure()
+        x_space = total_x_pixels/subselect_num
+        y_space = total_y_pixels/subselect_num
 
-x_tr, y_tr = train_locations.T
-#x_te, y_te = test_locations.T
+        # Subselect 34 x 34 pixels evenly spaced out - Create a filter
+        x_select  = [int(i*x_space + x_space/2) for i in range(subselect_num)]
+        y_select  = [int(i*y_space + y_space/2) for i in range(subselect_num)]
 
-x_sel_tr, y_sel_tr = selected_train_locs.T
-x_sel_te, y_sel_te = closest_locations.T
+        if train:
+            print("Loading training event streams ...")
 
-#plt.plot(x_tr, y_tr, 'r-')
-plt.scatter(x_sel_tr, y_sel_tr, marker='x')
-plt.scatter(x_sel_te, y_sel_te, marker='x', color='r')
-#plt.plot(x_te, y_te, 'k-')
-plt.savefig(path_to_gps_files)
+            # Get GPS data associated with chosen training stream
+            gps_gt = []
+            if os.path.isfile(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"):
+                tqdm.write("Adding GPS")
+                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"))
+
+            # Load the training stream itself and synchronise 
+            event_streams = load_event_streams([train_traverse])
+            event_streams = sync_event_streams(event_streams, [train_traverse], gps_gt)
+            print_duration(event_streams[0])
+
+            # Get the place samples 
+            sub_streams, start_times = filter_and_divide_training(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
+            
+            # Get the interpolated reference gps locations at each start time
+            self.training_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
+
+            self.samples = sub_streams
+            print("The number of training substreams is: " + str(len(self.samples)))
+            
+            
+        else:
+            assert training_locations is not None, "Training data must be loaded first"
+
+            # Get GPS data associated with chosen testing stream
+            print("Loading testing event streams ...")
+            gps_gt = []
+            if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
+                tqdm.write("Adding GPS")
+                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
+
+            # Estimate the closest locations in test dataset to training dataset and get their start_times 
+            start_times, self.testing_locations = find_closest_matches(training_locations, gps_gt[0])
+        	
+            # Load the test stream and synchronise
+            event_streams = load_event_streams([test_traverse])
+            event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
+            print_duration(event_streams[0])
+
+            # Get the place samples 
+            sub_streams = filter_and_divide_testing(event_streams[0], x_select, y_select, start_times, place_duration, max_spikes)
+            
+            self.samples = sub_streams
+            print("The number of testing substreams is: " + str(len(self.samples)))
+
+        self.place_duration = place_duration # The duration of a place in seconds 
+        self.place_gap = place_gap # The time between each place window
+        self.num_places = num_places # the number of places
+        self.sampling_time = sampling_time # Default sampling time is 1
+        self.samples_per_sec = samples_per_sec
+        self.transform = transform
+        self.subselect_num = subselect_num
+        #self.num_time_bins = int(sample_length/sampling_time)
+       
+
+    def __getitem__(self, i):
+        
+        # make sure we aren't calling an index out of range
+        assert i < self.num_places, "Index out of range! There are not that many place samples"
+
+        # Find the place label
+        label = int(i % (self.num_places))
+
+        # Find the number of time bins
+        num_time_bins = int(self.place_duration*self.samples_per_sec)
+        time_divider = int(1000000/self.samples_per_sec)
+
+        # Turn the sample stream into events
+        x_event = self.samples[i]['x'].to_numpy()
+        y_event = self.samples[i]['y'].to_numpy()
+        c_event = self.samples[i]['p'].to_numpy()
+        t_event = self.samples[i]['t'].to_numpy()
+        #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
+        event = slayer.io.Event(x_event, y_event, c_event, t_event/time_divider)
+
+        # Transform event
+        if self.transform is not None:
+            event = self.transform(event)
+
+        # Turn the events into a tensor 
+        spike = event.fill_tensor(
+                torch.zeros(2, self.subselect_num, self.subselect_num, num_time_bins),
+                sampling_time=self.sampling_time,
+            )
+        
+        return spike.reshape(-1, num_time_bins), label
+
+    def __len__(self):
+        return len(self.samples)
+
+
+
 
 
 # Ultimate test- loading the data
-#training_set = BrisbaneVPRDataset(train=True)
-#testing_set  = BrisbaneVPRDataset(train=False)
+# training_set = BrisbaneVPRDataset(train=True, start_time=100)
+# testing_set  = BrisbaneVPRDataset(train=False, training_locations=training_set.training_locations)
             
 # train_loader = DataLoader(dataset=training_set, batch_size=32, shuffle=True)
 # test_loader  = DataLoader(dataset=testing_set , batch_size=32, shuffle=True)
