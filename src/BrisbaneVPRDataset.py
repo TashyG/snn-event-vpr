@@ -1,5 +1,6 @@
 # Code adapted  from https://lava-nc.org/lava-lib-dl/slayer/notebooks/nmnist/train.html
 
+from fileinput import close
 import re
 import pandas as pd
 import numpy as np
@@ -15,6 +16,7 @@ import IPython.display as display
 from matplotlib import animation
 import matplotlib.pyplot as plt
 from scipy import interpolate
+from scipy.spatial.distance import cdist
 
 from utils import (
     load_event_streams,
@@ -99,12 +101,32 @@ def filter_and_divide(event_stream, x_select, y_select, num_places, place_gap, p
 
     return sub_streams, start_times
 
-def get_testing_labels(test_gps_locations):
+def get_testing_labels(gps_gt):
     global train_gps_locations
 
-    print(train_gps_locations)
-    print(test_gps_locations)
+    # Get the test gps locations 
+    test_gps_locations = interpolate_gps(gps_gt)[:, :2]
+    #test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
 
+    # For each training location find the closet test location 
+    
+    
+
+    # Get initial list of 
+
+def plot_gps(train_gps, test_gps):
+    # gps locations (one for each second)
+    train_locations = interpolate_gps(train_gps)[:, :2]
+    test_locations = interpolate_gps(test_gps)[:, :2]
+
+    #plt.figure()
+
+    x_tr, y_tr = train_locations.T
+    x_te, y_te = test_locations.T
+
+    plt.plot(x_tr, y_tr, 'r-')
+    plt.plot(x_te, y_te, 'k-')
+    plt.show()
 
 class BrisbaneVPRDataset(Dataset):
     """NMNIST dataset method
@@ -176,10 +198,12 @@ class BrisbaneVPRDataset(Dataset):
                 tqdm.write("Adding GPS")
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
             print(gps_gt[0])
+            
             # Find the closest  GPS locations to the training locations
-            gps_gt = gps_gt[0]
-            test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
-            print(test_gps_locations)
+            # gps_gt = gps_gt[0]
+            # test_gps_locations = interpolate_gps(gps_gt, np.arange(0, 667, 0.01))
+            # print(test_gps_locations)
+            
             # Load the test stream
             # event_streams = load_event_streams([test_traverse])
             # event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
@@ -251,9 +275,77 @@ class BrisbaneVPRDataset(Dataset):
         return len(self.samples)
 
 
+
+def find_closest_matches(training_locations, test_gps_data):
+    # Separate test gps coordinates and times
+    test_locations = test_gps_data[:, :2]
+    test_times = test_gps_data[:,2]
+
+    # Find the two closest test gps locations and their corresponding times for each training location
+    distance_matrix = cdist(training_locations, test_locations)
+    closest_inds = np.argsort(distance_matrix,axis=1)[:,:2]
+    closest_ranges = test_times[closest_inds]
+
+    # Search between the closest gps locations for a more accurate match
+    times = []
+    closest_test_locs = []
+    for closest_range, training_location in zip(closest_ranges, training_locations):
+        # Make sure earlier time is at the start
+        closest_range = np.sort(closest_range)
+
+        # Break down the time range found into smaller time steps
+        locs_within_range = interpolate_gps(test_gps_data, np.arange(closest_range[0], closest_range[1]+0.01, 0.01))[:,:2]
+
+        # Find the closest location match out of the smaller time steps and its corresponing time
+        distance_matrix = cdist([training_location], locs_within_range)
+        closest_match = np.argsort(distance_matrix,axis=1)[:,:1][0][0]
+        time_of_closest_match = closest_range[0] + closest_match*0.01
+        loc_of_closest_match = locs_within_range[closest_match]
+        times.append(time_of_closest_match)
+        closest_test_locs.append(loc_of_closest_match)
+
+    return times, np.array(closest_test_locs)
+
+print("Loading training event streams ...")
+train_gps = []
+if os.path.isfile(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"):
+    tqdm.write("Adding GPS")
+    train_gps.append(get_gps(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"))
+
+
+print("Loading testing event streams ...")
+test_gps = []
+if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
+    tqdm.write("Adding GPS")
+    test_gps.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
+
+#plot_gps(train_gps[0], test_gps[0])
+
+# gps locations (one for each second)
+train_locations = interpolate_gps(train_gps[0])[:, :2]
+selected_train_locs = train_locations[100:130, :]
+
+test_times, closest_locations = find_closest_matches(selected_train_locs, test_gps[0])
+
+print(closest_locations)
+#plt.figure()
+
+x_tr, y_tr = train_locations.T
+#x_te, y_te = test_locations.T
+
+x_sel_tr, y_sel_tr = selected_train_locs.T
+x_sel_te, y_sel_te = closest_locations.T
+
+#plt.plot(x_tr, y_tr, 'r-')
+plt.scatter(x_sel_tr, y_sel_tr, marker='x')
+plt.scatter(x_sel_te, y_sel_te, marker='x', color='r')
+#plt.plot(x_te, y_te, 'k-')
+plt.savefig(path_to_gps_files)
+
+
 # Ultimate test- loading the data
 #training_set = BrisbaneVPRDataset(train=True)
-testing_set  = BrisbaneVPRDataset(train=False)
+#testing_set  = BrisbaneVPRDataset(train=False)
             
 # train_loader = DataLoader(dataset=training_set, batch_size=32, shuffle=True)
 # test_loader  = DataLoader(dataset=testing_set , batch_size=32, shuffle=True)
