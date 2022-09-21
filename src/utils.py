@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 import pandas as pd
+import pyarrow.parquet as pq
 from PIL import Image
 
 # import terality as pd
@@ -22,6 +23,7 @@ from constants import (
     time_windows_overwrite,
     path_to_event_files,
     path_to_frames,
+    path_to_image_files,
     gt_times,
     video_beginning,
     qcr_traverses_first_times,
@@ -71,7 +73,17 @@ def get_traverse_alias(traverse_name_short):
 def load_event_streams(event_streams_to_load, dir_to_load_from=path_to_event_files):
     event_streams = []
     for event_stream in tqdm(event_streams_to_load):
-        event_streams.append(pd.read_parquet(os.path.join(dir_to_load_from, event_stream)))
+        parquet_file = pq.ParquetFile(os.path.join(dir_to_load_from, event_stream))
+        parquet_subset = parquet_file.read_row_groups([0,1,2])
+        dataframe = parquet_subset.to_pandas()
+        event_streams.append(dataframe)
+        # for batch in parquet_file.iter_batches():
+        #     print("RecordBatch")
+        #     batch_df = batch.to_pandas()
+        #     print("batch_df:", batch_df)
+        #     print("\n\n")
+
+        # event_streams.append(pd.read_parquet(os.path.join(dir_to_load_from, event_stream)))
     return event_streams
 
 
@@ -197,6 +209,30 @@ def sync_event_streams(event_streams, traverses_to_compare, gps_gt):
             event_streams_synced.append(event_stream)
     return event_streams_synced
 
+def get_images_at_start_times(start_times, traverse_name):
+    short_name = get_short_traverse_name(traverse_name)
+    start_of_recording = video_beginning[short_name]
+
+    path_to_images = path_to_image_files + short_name + '/frames/'
+
+    images_at_start_times = [] 
+    for start_time in start_times:
+        actual_time = start_of_recording + start_time
+        actual_time_string = '{0:12.1f}'.format(actual_time)
+
+        # Get image files starting the start time
+        closest_timestamp_paths = glob.glob(path_to_images + actual_time_string + '*.png')
+        closest_timestamps = []
+        for close_timestamp in closest_timestamp_paths:
+            close_timestamp = re.findall('[0-9]+[.][0-9]+', close_timestamp)
+            assert len(close_timestamp) == 1, "The path to the images is making regex fail"
+            closest_timestamps.append(float(close_timestamp[0]))
+        
+        images_at_start_times.append(closest_timestamp_paths[min(range(len(closest_timestamps)), key = lambda i: abs(closest_timestamps[i]-actual_time))])
+
+    return images_at_start_times
+
+   
 
 def remove_random_bursts(event_frames, threshold):
     event_frames[event_frames > threshold] = threshold

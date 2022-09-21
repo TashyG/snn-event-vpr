@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn
 
+from constants import path_to_gps_files
 
 def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax):
     """Plot confusion matrix using heatmap.
@@ -33,3 +34,31 @@ def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax
  
     plt.savefig(output_filename, bbox_inches='tight', dpi=300)
     plt.close()
+
+
+def plot_gps(path, training_locations, testing_locations):
+    x_tr, y_tr = training_locations.T
+    x_te, y_te = testing_locations.T
+
+    plt.scatter(x_tr, y_tr, marker='x')
+    plt.scatter(x_te, y_te, marker='x', color='r')
+
+    plt.savefig(path)
+
+
+def plot_match_images(outpath, matches, ref_images, query_images):
+    
+    fig, ax = plt.subplots(1, 3)
+
+    for query, match in enumerate(matches):
+        
+        print(query_images[query])
+        ax[0].imshow(query_images[query])
+        ax[0].set_title('Query')
+        ax[1].imshow(ref_images[match])
+        ax[1].set_title('Match')
+        ax[2].imshow(ref_images[query])
+        ax[2].set_title('Ground Truth')
+
+        outfile = outpath + "query_" + str(query)
+        plt.savefig(outfile)

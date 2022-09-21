@@ -24,13 +24,14 @@ from utils import (
     get_short_traverse_name,
     get_gps,
     print_duration,
-    interpolate_gps
+    interpolate_gps,
+    get_images_at_start_times
 )
 from constants import brisbane_event_traverses, path_to_gps_files
 
   
-train_traverse = brisbane_event_traverses[3]
-test_traverse = brisbane_event_traverses[4]
+train_traverse = brisbane_event_traverses[0]
+test_traverse = brisbane_event_traverses[1]
 
 def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     """
@@ -177,14 +178,6 @@ def find_closest_matches(training_locations, test_gps_data):
     return times, np.array(closest_test_locs)
 
 
-def plot_gps(training_locations, testing_locations):
-    x_tr, y_tr = training_locations.T
-    x_te, y_te = testing_locations.T
-
-    plt.scatter(x_tr, y_tr, marker='x')
-    plt.scatter(x_te, y_te, marker='x', color='r')
-
-    plt.savefig(path_to_gps_files)
 
 
 
@@ -249,6 +242,9 @@ class BrisbaneVPRDataset(Dataset):
             # Get the interpolated reference gps locations at each start time
             self.training_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
 
+            # Get the closest CMOS images at each start time
+            self.place_images = get_images_at_start_times(start_times, train_traverse)
+
             self.samples = sub_streams
             print("The number of training substreams is: " + str(len(self.samples)))
             
@@ -265,6 +261,9 @@ class BrisbaneVPRDataset(Dataset):
 
             # Estimate the closest locations in test dataset to training dataset and get their start_times 
             start_times, self.testing_locations = find_closest_matches(training_locations, gps_gt[0])
+
+            # Get the closest CMOS images at each start time
+            self.place_images = get_images_at_start_times(start_times, test_traverse)
         	
             # Load the test stream and synchronise
             event_streams = load_event_streams([test_traverse])
@@ -323,13 +322,15 @@ class BrisbaneVPRDataset(Dataset):
         return len(self.samples)
 
 
-
-
+# start_times = [0, 10, 20, 30, 40]
+# image_paths = get_images_at_start_times(start_times, train_traverse)
+# print(image_paths)
 
 # Ultimate test- loading the data
 # training_set = BrisbaneVPRDataset(train=True, start_time=100)
 # testing_set  = BrisbaneVPRDataset(train=False, training_locations=training_set.training_locations)
-            
+
+           
 # train_loader = DataLoader(dataset=training_set, batch_size=32, shuffle=True)
 # test_loader  = DataLoader(dataset=testing_set , batch_size=32, shuffle=True)
 

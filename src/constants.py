@@ -91,3 +91,4 @@ path_to_frames = os.path.dirname(os.path.abspath(__file__)) + "/../data/input_fr
 path_to_frames_event_vlad = os.path.dirname(os.path.abspath(__file__)) + "/../data/input_frames_event_vlad/"
 path_to_denoised_event_vlad = os.path.dirname(os.path.abspath(__file__)) + "/../data/denoised_frames_event_vlad/"
 path_to_gps_files = os.path.dirname(os.path.abspath(__file__)) + "/../data/gps_data/"
+path_to_image_files = os.path.dirname(os.path.abspath(__file__)) + "/../data/image_data/"
