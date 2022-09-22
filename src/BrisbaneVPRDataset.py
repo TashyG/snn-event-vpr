@@ -30,8 +30,8 @@ from utils import (
 from constants import brisbane_event_traverses, path_to_gps_files
 
   
-train_traverse = brisbane_event_traverses[0]
-test_traverse = brisbane_event_traverses[1]
+# train_traverse = brisbane_event_traverses[0]
+# test_traverse = brisbane_event_traverses[3]
 
 def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     """
@@ -196,6 +196,7 @@ class BrisbaneVPRDataset(Dataset):
     """
     def __init__(
         self,
+        traverse_name,
         train=True,
         training_locations=None, 
         sampling_time=1, 
@@ -227,47 +228,47 @@ class BrisbaneVPRDataset(Dataset):
 
             # Get GPS data associated with chosen training stream
             gps_gt = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"):
+            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
                 tqdm.write("Adding GPS")
-                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(train_traverse) + ".nmea"))
+                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
             # Load the training stream itself and synchronise 
-            event_streams = load_event_streams([train_traverse])
-            event_streams = sync_event_streams(event_streams, [train_traverse], gps_gt)
+            event_streams = load_event_streams([traverse_name])
+            event_streams = sync_event_streams(event_streams, [traverse_name], gps_gt)
             print_duration(event_streams[0])
 
             # Get the place samples 
             sub_streams, start_times = filter_and_divide_training(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
             
             # Get the interpolated reference gps locations at each start time
-            self.training_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
+            self.place_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
 
             # Get the closest CMOS images at each start time
-            self.place_images = get_images_at_start_times(start_times, train_traverse)
+            self.place_images = get_images_at_start_times(start_times, traverse_name)
 
             self.samples = sub_streams
             print("The number of training substreams is: " + str(len(self.samples)))
             
             
         else:
-            assert training_locations is not None, "Training data must be loaded first"
+            assert training_locations is not None, "Must provide training locations"
 
             # Get GPS data associated with chosen testing stream
             print("Loading testing event streams ...")
             gps_gt = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"):
+            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
                 tqdm.write("Adding GPS")
-                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(test_traverse) + ".nmea"))
+                gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
             # Estimate the closest locations in test dataset to training dataset and get their start_times 
-            start_times, self.testing_locations = find_closest_matches(training_locations, gps_gt[0])
+            start_times, self.place_locations = find_closest_matches(training_locations, gps_gt[0])
 
             # Get the closest CMOS images at each start time
-            self.place_images = get_images_at_start_times(start_times, test_traverse)
+            self.place_images = get_images_at_start_times(start_times, traverse_name)
         	
             # Load the test stream and synchronise
-            event_streams = load_event_streams([test_traverse])
-            event_streams = sync_event_streams(event_streams, [test_traverse], gps_gt)
+            event_streams = load_event_streams([traverse_name])
+            event_streams = sync_event_streams(event_streams, [traverse_name], gps_gt)
             print_duration(event_streams[0])
 
             # Get the place samples 

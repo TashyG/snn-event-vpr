@@ -192,6 +192,8 @@ plot_confusion_matrix(rate, labels, annotations, output_path, vmin, vmax)
 plot_confusion_matrix(conv, labels, annotations_s, output_path_s, vmin, vmax)
 
 # Save GPS map
+
+
 # Print accuracy!!!
 accuracy = accuracy/num_places
 accuracy_s = accuracy_s/num_places

@@ -16,7 +16,7 @@ def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax
     
     seaborn.set(color_codes=True)
     #plt.figure(1, figsize=(int(num_classes*0.6), int(num_classes*0.6*(2/3)))) # 2x
-    plt.figure(1, figsize=(12, 8)) # 2x
+    plt.figure(figsize=(12, 8)) # 2x
  
     plt.title("Confusion Matrix")
  
@@ -33,10 +33,15 @@ def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax
     ax.set(ylabel="Predicted Label", xlabel="True Label")
  
     plt.savefig(output_filename, bbox_inches='tight', dpi=300)
+    plt.cla()
+    plt.clf()
     plt.close()
 
 
 def plot_gps(path, training_locations, testing_locations):
+    
+    plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
+
     x_tr, y_tr = training_locations.T
     x_te, y_te = testing_locations.T
 
@@ -45,20 +50,31 @@ def plot_gps(path, training_locations, testing_locations):
 
     plt.savefig(path)
 
+    plt.cla()
+    plt.clf()
+    plt.close()
+
+
 
 def plot_match_images(outpath, matches, ref_images, query_images):
     
+    plt.figure(figsize=(18, 4), facecolor="white", edgecolor="white")
     fig, ax = plt.subplots(1, 3)
 
     for query, match in enumerate(matches):
-        
-        print(query_images[query])
-        ax[0].imshow(query_images[query])
+        query_image = plt.imread(query_images[query])
+        match_image = plt.imread(ref_images[match])
+        gt_image = plt.imread(ref_images[query])
+        ax[0].imshow(query_image)
         ax[0].set_title('Query')
-        ax[1].imshow(ref_images[match])
+        ax[1].imshow(match_image)
         ax[1].set_title('Match')
-        ax[2].imshow(ref_images[query])
+        ax[2].imshow(gt_image)
         ax[2].set_title('Ground Truth')
 
         outfile = outpath + "query_" + str(query)
         plt.savefig(outfile)
+    
+    plt.cla()
+    plt.clf()
+    plt.close()
