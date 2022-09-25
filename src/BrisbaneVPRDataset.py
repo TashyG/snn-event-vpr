@@ -236,10 +236,10 @@ class BrisbaneVPRDataset(Dataset):
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
             # Get GPS speed data 
-            gps_gt_speed = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
-                tqdm.write("Adding GPS")
-                gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
+            # gps_gt_speed = []
+            # if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
+            #     tqdm.write("Adding GPS")
+            #     gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
             # Load the training stream itself and synchronise 
             event_streams = load_event_streams([traverse_name])
@@ -397,9 +397,9 @@ class BrisbaneVPRDataset(Dataset):
 
 # event_stream.to_pickle("my_data.pkl")
 
-event_stream = pd.read_pickle("my_data.pkl")
+# event_stream = pd.read_pickle("my_data.pkl")
 
-print(event_stream)
+# print(event_stream)
 
 # gps_speed = interpolate_gps_speed(gps_gt[0])[:668,:1].T
 # gps_coords = interpolate_gps(gps_gt_normal[0])[:,:2].T

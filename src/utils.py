@@ -74,7 +74,7 @@ def load_event_streams(event_streams_to_load, dir_to_load_from=path_to_event_fil
     event_streams = []
     for event_stream in tqdm(event_streams_to_load):
         parquet_file = pq.ParquetFile(os.path.join(dir_to_load_from, event_stream))
-        parquet_subset = parquet_file.read_row_groups([0,1,2])
+        parquet_subset = parquet_file.read_row_groups([0,1,2,3])
         dataframe = parquet_subset.to_pandas()
         event_streams.append(dataframe)
         # for batch in parquet_file.iter_batches():
