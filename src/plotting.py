@@ -40,7 +40,7 @@ def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax
 
 def plot_gps(path, training_locations, testing_locations):
     
-    plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
+    plt.figure(figsize=(10, 6), facecolor="white", edgecolor="white")
 
     x_tr, y_tr = training_locations.T
     x_te, y_te = testing_locations.T

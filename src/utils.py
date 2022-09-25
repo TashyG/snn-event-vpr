@@ -290,17 +290,20 @@ def get_gps(nmea_file_path):
                 if first_timestamp is None:
                     first_timestamp = msg.timestamp
                     previous_lat, previous_lon = msg.latitude, msg.longitude
+                    prev_dist = 0
 
                 # print(msg.timestamp, msg.latitude, msg.longitude)
                 # print(repr(msg.latitude))
-                dist_to_prev = np.linalg.norm(np.array([msg.latitude, msg.longitude]) - np.array([previous_lat, previous_lon]))
+                dist_to_prev = np.linalg.norm(np.array([msg.latitude, msg.longitude]) - np.array([previous_lat, previous_lon]))*100000
                 if msg.latitude != 0 and msg.longitude != 0 and msg.latitude != previous_lat and msg.longitude != previous_lon and dist_to_prev > 0.0001:
                     timestamp_diff = (msg.timestamp.hour - first_timestamp.hour) * 3600 + (msg.timestamp.minute - first_timestamp.minute) * 60 + (msg.timestamp.second - first_timestamp.second)
                     latitudes.append(msg.latitude)
                     longitudes.append(msg.longitude)
                     timestamps.append(timestamp_diff)
-                    distances.append(dist_to_prev)  # noqa
+                    next_dist = prev_dist + dist_to_prev
+                    distances.append(next_dist)  # noqa
                     previous_lat, previous_lon = msg.latitude, msg.longitude
+                    prev_dist = next_dist
 
         except pynmea2.ParseError as e:  # noqa
             # print('Parse error: {} {}'.format(msg.sentence_type, e))
@@ -309,7 +312,71 @@ def get_gps(nmea_file_path):
     return np.array(np.vstack((latitudes, longitudes, timestamps, distances))).T
 
 
-def interpolate_gps(gps_data, desired_times=None):
+# def get_gps(nmea_file_path):
+#     nmea_file = open(nmea_file_path, encoding="utf-8")
+
+#     latitudes, longitudes, timestamps, distances = [], [], [], []
+
+#     first_timestamp = None
+#     previous_lat, previous_lon = None, None
+
+#     for line in nmea_file.readlines():
+#         try:
+#             msg = pynmea2.parse(line)
+#             if msg.sentence_type not in ["GSV", "VTG", "GSA"]:
+#                 if first_timestamp is None:
+#                     first_timestamp = msg.timestamp
+#                     previous_lat, previous_lon = msg.latitude, msg.longitude
+#                     prev_dist = 0
+
+#                 # print(msg.timestamp, msg.latitude, msg.longitude)
+#                 # print(repr(msg.latitude))
+#                 dist_to_prev = np.linalg.norm(np.array([msg.latitude, msg.longitude]) - np.array([previous_lat, previous_lon]))*100000
+#                 if msg.latitude != 0 and msg.longitude != 0 and msg.latitude != previous_lat and msg.longitude != previous_lon and dist_to_prev > 0.0001:
+#                     timestamp_diff = (msg.timestamp.hour - first_timestamp.hour) * 3600 + (msg.timestamp.minute - first_timestamp.minute) * 60 + (msg.timestamp.second - first_timestamp.second)
+#                     latitudes.append(msg.latitude)
+#                     longitudes.append(msg.longitude)
+#                     timestamps.append(timestamp_diff)
+#                     next_dist = prev_dist + dist_to_prev
+#                     distances.append(next_dist)  # noqa
+#                     previous_lat, previous_lon = msg.latitude, msg.longitude
+#                     prev_dist = next_dist
+
+#         except pynmea2.ParseError as e:  # noqa
+#             # print('Parse error: {} {}'.format(msg.sentence_type, e))
+#             continue
+
+#     return np.array(np.vstack((latitudes, longitudes, timestamps, distances))).T
+
+
+def get_gps_speed(nmea_file_path):
+    nmea_file = open(nmea_file_path, encoding="utf-8")
+
+    speeds, timestamps = [], []
+
+    first_timestamp = None
+
+    for line in nmea_file.readlines():
+        try:
+            msg = pynmea2.parse(line)
+            
+            if msg.sentence_type == 'RMC':
+                if first_timestamp is None:
+                    first_timestamp = msg.timestamp
+
+                timestamp_diff = (msg.timestamp.hour - first_timestamp.hour) * 3600 + (msg.timestamp.minute - first_timestamp.minute) * 60 + (msg.timestamp.second - first_timestamp.second)
+                timestamps.append(timestamp_diff)
+            if msg.sentence_type == "VTG":
+                speeds.append(msg.spd_over_grnd_kmph)  # noqa
+
+        except pynmea2.ParseError as e:  # noqa
+            # print('Parse error: {} {}'.format(msg.sentence_type, e))
+            continue
+
+    return np.array(np.vstack((speeds, timestamps))).T
+
+
+def interpolate_gps(gps_data, desired_times=None): 
     f_time_to_lat = interpolate.interp1d(gps_data[:, 2], gps_data[:, 0], fill_value="extrapolate")
     f_time_to_lon = interpolate.interp1d(gps_data[:, 2], gps_data[:, 1], fill_value="extrapolate")
 
@@ -319,6 +386,22 @@ def interpolate_gps(gps_data, desired_times=None):
     new_lat = np.array([f_time_to_lat(t) for t in desired_times])
     new_lon = np.array([f_time_to_lon(t) for t in desired_times])
     return np.array(np.vstack((new_lat, new_lon, desired_times))).T
+
+def interpolate_gps_distance(gps_data, desired_times): 
+    f_time_to_distance = interpolate.interp1d(gps_data[:, 0], gps_data[:, 1], fill_value="extrapolate")
+
+    new_distance = np.array([f_time_to_distance(t) for t in desired_times])
+    return np.array(np.vstack((new_distance, desired_times))).T
+
+
+def interpolate_gps_speed(gps_data, desired_times=None): 
+    f_time_to_speed = interpolate.interp1d(gps_data[:, 1], gps_data[:, 0], fill_value="extrapolate")
+
+    if desired_times is None:
+        desired_times = np.arange(gps_data[-1, 1])
+
+    new_speed = np.array([f_time_to_speed(t) for t in desired_times])
+    return np.array(np.vstack((new_speed, desired_times))).T
 
 
 def get_precomputed_convweight(seq_length, diff_query_ref_factor, device):

@@ -19,12 +19,15 @@ from scipy import interpolate
 from scipy.spatial.distance import cdist
 
 from utils import (
+    get_gps_speed,
     load_event_streams,
     sync_event_streams,
     get_short_traverse_name,
     get_gps,
     print_duration,
     interpolate_gps,
+    interpolate_gps_speed,
+    interpolate_gps_distance,
     get_images_at_start_times
 )
 from constants import brisbane_event_traverses, path_to_gps_files
@@ -226,11 +229,17 @@ class BrisbaneVPRDataset(Dataset):
         if train:
             print("Loading training event streams ...")
 
-            # Get GPS data associated with chosen training stream
+            # Get GPS long/lat data associated with chosen training stream
             gps_gt = []
             if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
                 tqdm.write("Adding GPS")
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
+
+            # Get GPS speed data 
+            gps_gt_speed = []
+            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
+                tqdm.write("Adding GPS")
+                gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
             # Load the training stream itself and synchronise 
             event_streams = load_event_streams([traverse_name])
@@ -245,6 +254,9 @@ class BrisbaneVPRDataset(Dataset):
 
             # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name)
+
+            # # Get the speeds at each start time each 
+            # self.place_speeds = interpolate_gps(gps_gt_speed[0], start_times)[:, :2]
 
             self.samples = sub_streams
             print("The number of training substreams is: " + str(len(self.samples)))
@@ -322,6 +334,98 @@ class BrisbaneVPRDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+
+# gps_gt_speed = []
+# if os.path.isfile(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[4]) + ".nmea"):
+#     tqdm.write("Adding GPS")
+#     gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[4]) + ".nmea"))
+
+# gps_gt= []
+# if os.path.isfile(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[0]) + ".nmea"):
+#     tqdm.write("Adding GPS")
+#     gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[0]) + ".nmea"))
+
+# print(gps_gt[0])
+
+# event_streams = load_event_streams([brisbane_event_traverses[0]])
+# event_streams = sync_event_streams(event_streams, [brisbane_event_traverses[0]], gps_gt)
+# print_duration(event_streams[0])
+# event_stream  = event_streams[0]
+
+# total_x_pixels = 346
+# total_y_pixels = 260
+# subselect_num = 34
+
+# x_space = total_x_pixels/subselect_num
+# y_space = total_y_pixels/subselect_num
+
+# # Subselect 34 x 34 pixels evenly spaced out - Create a filter
+# x_select  = [int(i*x_space + x_space/2) for i in range(subselect_num)]
+# y_select  = [int(i*y_space + y_space/2) for i in range(subselect_num)]
+
+
+# filter0x = event_stream['x'].isin(x_select)
+# filter0y = event_stream['y'].isin(y_select)
+
+# # Apply the filters
+# event_stream = event_stream[filter0x & filter0y]
+
+# # Now reset values to be between 0 and 33
+# for i, x in zip(range(34), x_select):
+#     small_filt0x  = event_stream['x'].isin([x])
+#     event_stream['x'].loc[small_filt0x] = i
+
+# for i, y in zip(range(34), y_select):
+#     small_filt0y  = event_stream['y'].isin([y])
+#     event_stream['y'].loc[small_filt0y] = i
+
+# times = event_stream['t'].to_numpy()
+
+
+# # GPS only distance
+# gps_distance = gps_gt[0][:,2:4]
+# new_row = [0,0]
+# gps_distance = np.vstack([new_row,gps_distance])
+# print(gps_distance)
+# desired_times = np.subtract(times, times[0])*0.000001
+# print(desired_times.shape)
+
+# gps_distances_interpolated = interpolate_gps_distance(gps_distance, desired_times)[:,0].T
+# print(gps_distances_interpolated)
+
+# event_stream = event_stream.assign(distance=gps_distances_interpolated)
+
+# event_stream.to_pickle("my_data.pkl")
+
+event_stream = pd.read_pickle("my_data.pkl")
+
+print(event_stream)
+
+# gps_speed = interpolate_gps_speed(gps_gt[0])[:668,:1].T
+# gps_coords = interpolate_gps(gps_gt_normal[0])[:,:2].T
+
+# x_tr, y_tr = gps_coords
+# plt.scatter(x_tr, y_tr, c=gps_speed, cmap='viridis')
+
+# plt.savefig(os.path.dirname(os.path.abspath(__file__)) + "/../results/scatter4.png")
+
+# gps_gt = []
+# if os.path.isfile(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[2]) + ".nmea"):
+#     tqdm.write("Adding GPS")
+#     gps_gt.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[2]) + ".nmea"))
+
+# gps_gt_normal = []
+# if os.path.isfile(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[2]) + ".nmea"):
+#     tqdm.write("Adding GPS")
+#     gps_gt_normal.append(get_gps(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[2]) + ".nmea"))
+
+# gps_speed = interpolate_gps_speed(gps_gt[0])[:701,:1].T
+# gps_coords = interpolate_gps(gps_gt_normal[0])[:,:2].T
+
+# x_tr, y_tr = gps_coords
+# plt.scatter(x_tr, y_tr, c=gps_speed, cmap='viridis')
+
+# plt.savefig(os.path.dirname(os.path.abspath(__file__)) + "/../results/scatter2.png")
 
 # start_times = [0, 10, 20, 30, 40]
 # image_paths = get_images_at_start_times(start_times, train_traverse)
