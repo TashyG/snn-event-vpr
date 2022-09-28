@@ -95,6 +95,10 @@ def get_size(event_stream):
 def print_duration(event_stream):
     print(f'Duration: {((event_stream.iloc[-1]["t"] - event_stream.iloc[0]["t"]) / 1e6):.2f}s (which is {len(event_stream)} events)')
 
+def print_distance(event_stream):
+    print(f'Distance: {((event_stream.iloc[-1]["distance"] - event_stream.iloc[0]["distance"])):.2f}m (which is {len(event_stream)} events)')
+
+
 # Turns numpy array of events into event frames and combines positive and negative polarities
 def create_event_frames(event_streams_numpy, traverses_to_compare, sensor_size, frame_length=1e6, event_count=None, overlap=0, time_slices=None):
     if time_slices is None:
