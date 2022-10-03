@@ -219,9 +219,8 @@ def divide_training(event_stream, num_places, start_dist, place_gap, place_durat
     distances = []
     for i in range(0,num_places):
         sub_stream, start_time = chopDataDistTime(event_stream, start_dist + i*place_gap, place_duration, max_spikes)
-        print_duration(sub_stream)
+        print("Place: " + str(i))
         print_distance(sub_stream)
-        print(start_time)
         sub_streams.append(sub_stream)
         start_times.append(start_time)
         distances.append(sub_stream.iloc[-1]["distance"] - sub_stream.iloc[0]["distance"])
@@ -233,10 +232,11 @@ def divide_testing(event_stream, start_times, place_duration, max_spikes):
     # Divide the test stream into 2 second windows
     sub_streams = []
     distances = []
+    counter = 0
     for start_time in start_times:
-        print(start_time)
         sub_stream = chopData(event_stream, start_time, start_time + place_duration, max_spikes)
-        print_duration(sub_stream)
+        print("Place: " + str(counter))
+        counter+=1
         print_distance(sub_stream)
         sub_streams.append(sub_stream)
         distances.append(sub_stream.iloc[-1]["distance"] - sub_stream.iloc[0]["distance"])

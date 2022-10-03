@@ -86,7 +86,7 @@ time_windows_overwrite = {  # roughly normalise time windows for traverses where
 }
 
 path_to_data = os.path.dirname(os.path.abspath(__file__)) + "/../data/"
-path_to_event_files = os.path.dirname(os.path.abspath(__file__)) + "/../data/"
+path_to_event_files = os.path.dirname(os.path.abspath(__file__)) + "/../data/event_data/"
 path_to_frames = os.path.dirname(os.path.abspath(__file__)) + "/../data/input_frames/"
 path_to_frames_event_vlad = os.path.dirname(os.path.abspath(__file__)) + "/../data/input_frames_event_vlad/"
 path_to_denoised_event_vlad = os.path.dirname(os.path.abspath(__file__)) + "/../data/denoised_frames_event_vlad/"

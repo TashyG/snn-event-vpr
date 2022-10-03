@@ -28,9 +28,10 @@ from utils import (
     interpolate_gps,
     interpolate_gps_speed,
     interpolate_gps_distance,
-    get_images_at_start_times
+    get_images_at_start_times,
+    print_distance
 )
-from constants import brisbane_event_traverses, path_to_gps_files
+from constants import brisbane_event_traverses, path_to_gps_files, path_to_pickles
 
   
 # train_traverse = brisbane_event_traverses[0]
@@ -181,7 +182,120 @@ def find_closest_matches(training_locations, test_gps_data):
     return times, np.array(closest_test_locs)
 
 
+def chopDataDistTime(event_stream, start_distance, place_duration, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
 
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    stream_start_time  = event_stream['t'].iloc[0]
+
+    # Get closest time for the starting distance
+    time_at_start_dist = event_stream.loc[event_stream['distance'] >= start_distance]['t'].iloc[0]
+
+    chop_start = time_at_start_dist
+    chop_end = chop_start + place_duration*1000000 -1
+
+    btwn = event_stream['t'].between(chop_start, chop_end, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['t'] -= chop_start
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream, (chop_start - stream_start_time)/1000000
+
+def chopDataByDist(event_stream, start_distance, end_distance, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
+
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    stream_start_time  = event_stream['t'].iloc[0]
+
+    # Get closest time for the starting distance
+    time_at_start_dist = event_stream.loc[event_stream['distance'] >= start_distance]['t'].iloc[0]
+
+    btwn = event_stream['distance'].between(start_distance, end_distance, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['distance'] -= start_distance
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream, (time_at_start_dist - stream_start_time)/1000000
+
+def chopDataTimeDist(event_stream, start_time, place_length, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
+
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    stream_start_time  = event_stream['t'].iloc[0]
+
+    # Get closest time for the starting distance
+    dist_at_start_time = event_stream.loc[event_stream['t'] >= (stream_start_time + start_time*1000000)]['distance'].iloc[0]
+    end_distance = dist_at_start_time + place_length
+
+    btwn = event_stream['distance'].between(dist_at_start_time, end_distance, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['distance'] -= dist_at_start_time
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream
+
+
+def divide_training(event_stream, num_places, start_dist, place_gap, place_length, max_spikes):
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    start_times = []
+    times = []
+    for i in range(0,num_places):
+        sub_stream, start_time = chopDataByDist(event_stream, start_dist + i*place_gap, start_dist + i*place_gap + place_length, max_spikes)
+        print("Place: " + str(i))
+        print_distance(sub_stream)
+        print_duration(sub_stream)
+        sub_streams.append(sub_stream)
+        start_times.append(start_time)
+        times.append(sub_stream.iloc[-1]["t"] - sub_stream.iloc[0]["t"])
+    return sub_streams, start_times, times
+
+def divide_testing(event_stream, start_times, place_length, max_spikes):
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    times = []
+    counter = 0
+    for start_time in start_times:
+        sub_stream = chopDataTimeDist(event_stream, start_time, place_length, max_spikes)
+        print("Place: " + str(counter))
+        counter+=1
+        print_distance(sub_stream)
+        print_duration(sub_stream)
+        sub_streams.append(sub_stream)
+        times.append(sub_stream.iloc[-1]["t"] - sub_stream.iloc[0]["t"])
+    return sub_streams, times
 
 
 class BrisbaneVPRDatasetSpeed(Dataset):
@@ -204,27 +318,14 @@ class BrisbaneVPRDatasetSpeed(Dataset):
         training_locations=None, 
         sampling_time=1, 
         samples_per_sec = 1000,
-        num_places = 30,
-        start_time = 0,
-        place_gap=2, 
-        place_duration = 0.5,
+        num_places = 45,
+        start_dist = 200,
+        place_gap=100, 
+        place_length= 25,
         max_spikes=None,
-        subselect_num = 34,
         transform=None,
     ):
         super(BrisbaneVPRDatasetSpeed, self).__init__()
-
-        # Check input parameters 
-
-        total_x_pixels = 346
-        total_y_pixels = 260
-
-        x_space = total_x_pixels/subselect_num
-        y_space = total_y_pixels/subselect_num
-
-        # Subselect 34 x 34 pixels evenly spaced out - Create a filter
-        x_select  = [int(i*x_space + x_space/2) for i in range(subselect_num)]
-        y_select  = [int(i*y_space + y_space/2) for i in range(subselect_num)]
 
         if train:
             print("Loading training event streams ...")
@@ -235,29 +336,24 @@ class BrisbaneVPRDatasetSpeed(Dataset):
                 tqdm.write("Adding GPS")
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
-            #Get GPS speed data 
-            gps_gt_speed = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
-                tqdm.write("Adding GPS")
-                gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
-
             # Load the training stream itself and synchronise 
-            event_streams = load_event_streams([traverse_name])
-            event_streams = sync_event_streams(event_streams, [traverse_name], gps_gt)
-            print_duration(event_streams[0])
+            event_stream = pd.read_pickle(path_to_pickles + get_short_traverse_name(traverse_name) + ".pkl")
+            print_duration(event_stream)
+            print_distance(event_stream)
 
             # Get the place samples 
-            sub_streams, start_times = filter_and_divide_training(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
+            sub_streams, start_times, times = divide_training(event_stream, num_places, start_dist, place_gap, place_length, max_spikes)
             
-            # Get the interpolated reference gps locations at each start time
+            # # Get the interpolated reference gps locations at each start time
             self.place_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]
+            
 
-            # Get the closest CMOS images at each start time
+            # # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name)
 
-            # Get the speeds at each start time each 
-            self.place_speeds = interpolate_gps_speed(gps_gt_speed[0], start_times)[:, :2]
-            print(self.place_speeds)
+            # # Get the speeds at each start time each 
+            # self.place_speeds = interpolate_gps_speed(gps_gt_speed[0], start_times)[:, :2]
+            # print(self.place_speeds)
 
             self.samples = sub_streams
             print("The number of training substreams is: " + str(len(self.samples)))
@@ -273,12 +369,6 @@ class BrisbaneVPRDatasetSpeed(Dataset):
                 tqdm.write("Adding GPS")
                 gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
 
-            #Get GPS speed data 
-            gps_gt_speed = []
-            if os.path.isfile(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"):
-                tqdm.write("Adding GPS")
-                gps_gt_speed.append(get_gps_speed(path_to_gps_files + get_short_traverse_name(traverse_name) + ".nmea"))
-
 
             # Estimate the closest locations in test dataset to training dataset and get their start_times 
             start_times, self.place_locations = find_closest_matches(training_locations, gps_gt[0])
@@ -287,27 +377,26 @@ class BrisbaneVPRDatasetSpeed(Dataset):
             self.place_images = get_images_at_start_times(start_times, traverse_name)
 
             # Get the speeds at each start time each 
-            self.place_speeds = interpolate_gps_speed(gps_gt_speed[0], start_times)[:, :2]
-            print(self.place_speeds)
+            # self.place_speeds = interpolate_gps_speed(gps_gt_speed[0], start_times)[:, :2]
+            # print(self.place_speeds)
 
             # Load the test stream and synchronise
-            event_streams = load_event_streams([traverse_name])
-            event_streams = sync_event_streams(event_streams, [traverse_name], gps_gt)
-            print_duration(event_streams[0])
+            event_stream = pd.read_pickle(path_to_pickles + get_short_traverse_name(traverse_name) + ".pkl")
+            print_duration(event_stream)
+            print_distance(event_stream)
 
             # Get the place samples 
-            sub_streams = filter_and_divide_testing(event_streams[0], x_select, y_select, start_times, place_duration, max_spikes)
+            sub_streams, times = divide_testing(event_stream, start_times, place_length, max_spikes)
             
             self.samples = sub_streams
             print("The number of testing substreams is: " + str(len(self.samples)))
 
-        self.place_duration = place_duration # The duration of a place in seconds 
+        self.place_duration = place_length # The duration of a place in seconds 
         self.place_gap = place_gap # The time between each place window
         self.num_places = num_places # the number of places
         self.sampling_time = sampling_time # Default sampling time is 1
         self.samples_per_sec = samples_per_sec
         self.transform = transform
-        self.subselect_num = subselect_num
         #self.num_time_bins = int(sample_length/sampling_time)
        
 
@@ -320,16 +409,16 @@ class BrisbaneVPRDatasetSpeed(Dataset):
         label = int(i % (self.num_places))
 
         # Find the number of time bins
-        num_time_bins = int(self.place_duration*self.samples_per_sec)
-        time_divider = int(1000000/self.samples_per_sec)
+        num_dist_bins = 3000 #int(self.place_duration*self.samples_per_sec)
+        #time_divider = int(1000000/self.samples_per_sec)
 
         # Turn the sample stream into events
         x_event = self.samples[i]['x'].to_numpy()
         y_event = self.samples[i]['y'].to_numpy()
         c_event = self.samples[i]['p'].to_numpy()
-        t_event = self.samples[i]['t'].to_numpy()
+        d_event = self.samples[i]['distance'].to_numpy()
         #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
-        event = slayer.io.Event(x_event, y_event, c_event, t_event/time_divider)
+        event = slayer.io.Event(x_event, y_event, c_event, d_event*(1000/9))
 
         # Transform event
         if self.transform is not None:
@@ -337,11 +426,11 @@ class BrisbaneVPRDatasetSpeed(Dataset):
 
         # Turn the events into a tensor 
         spike = event.fill_tensor(
-                torch.zeros(2, self.subselect_num, self.subselect_num, num_time_bins),
+                torch.zeros(2, 34, 34, num_dist_bins),
                 sampling_time=self.sampling_time,
             )
         
-        return spike.reshape(-1, num_time_bins), label
+        return spike.reshape(-1, num_dist_bins), label
 
     def __len__(self):
         return len(self.samples)
@@ -450,8 +539,10 @@ class BrisbaneVPRDatasetSpeed(Dataset):
 # print(image_paths)
 
 # Ultimate test- loading the data
-# training_set = BrisbaneVPRDataset(train=True, start_time=100)
-# testing_set  = BrisbaneVPRDataset(train=False, training_locations=training_set.training_locations)
+# train_traverse = brisbane_event_traverses[0]
+# test_traverse = brisbane_event_traverses[2]
+# training_set = BrisbaneVPRDatasetTime(train=True, traverse_name=train_traverse)
+# testing_set  = BrisbaneVPRDatasetTime(train=False, traverse_name=test_traverse, training_locations=training_set.place_locations)
 
            
 # train_loader = DataLoader(dataset=training_set, batch_size=32, shuffle=True)

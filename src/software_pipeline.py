@@ -1,8 +1,7 @@
 from __future__ import annotations
-from time import time
-from BrisbaneVPRDataset import BrisbaneVPRDataset
+from VPRDataset import VPRDataset
 from VPRNetwork import VPRNetwork
-from plotting import plot_confusion_matrix, plot_match_images
+import plotting
 
 import os, sys
 import torch
@@ -10,7 +9,6 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy import signal
-from datetime import datetime
 
 import numpy as np
 
@@ -24,11 +22,10 @@ epochs = 50
 
 # Network settings
 input_size = 34
-threshold = 1.0
+threshold = 1.00
 
 # Data settings
 num_places = 30
-start_time = 100
 place_gap = 2 #164/num_places # The streams run for approximately 164 seconds 
 samples_per_sec = 1000
 place_duration = 2
@@ -50,6 +47,8 @@ def transpose( matrix):
         return []
     return [[matrix[i][j] for i in range(len(matrix))] for j in range(len(matrix[0]))]
 
+# file = "output_log.txt"
+# f = open(file, 'w')
 
 
 # Make a folder for the trained network
@@ -68,11 +67,13 @@ net = VPRNetwork(input_size, num_places, threshold=threshold).to(device)
 #---------------- Load the Dataset -------------------#
 
 # Load the data
-training_set = BrisbaneVPRDataset(train=True, place_duration = place_duration, place_gap=place_gap, num_places=num_places, start_time=start_time,samples_per_sec=samples_per_sec, max_spikes=max_spikes, subselect_num=input_size)
-testing_set  = BrisbaneVPRDataset(train=False, place_duration = place_duration, training_locations=training_set.training_locations, place_gap=place_gap, num_places=num_places, start_time=start_time, samples_per_sec=samples_per_sec, max_spikes=max_spikes, subselect_num=input_size)
+training_set = VPRDataset(train=True, place_duration = place_duration, place_gap=place_gap, num_places=num_places, samples_per_sec=samples_per_sec, max_spikes=max_spikes, subselect_num=input_size)
+testing_set  = VPRDataset(train=False, place_duration = place_duration, place_gap=place_gap, num_places=num_places, samples_per_sec=samples_per_sec, max_spikes=max_spikes, subselect_num=input_size)
             
 train_loader = DataLoader(dataset=training_set, batch_size=10, shuffle=True)
 test_loader  = DataLoader(dataset=testing_set , batch_size=10, shuffle=True)
+
+print(training_set[0])
 
 
 #------------- Training the Network -----------------#
@@ -140,11 +141,9 @@ for i in range(num_places):
 
 # Make confusion matrix annotations
 accuracy = 0
-matches = []
 annotations = [['' for i in range(num_places)] for j in range(num_places)]
 for qryIndex in range(num_places):
     max_idx = np.argmax(rate[qryIndex])
-    matches.append(max_idx)
     annotations[max_idx][qryIndex] = 'x'
     if max_idx ==qryIndex:
         accuracy += 1
@@ -157,42 +156,23 @@ print(np.shape(conv))
 
 # Make confusion matrix annotations
 accuracy_s = 0
-matches_with_seq = []
 annotations_s = [['' for i in range(num_places)] for j in range(num_places)]
 for qryIndex in range(num_places):
     max_idx = np.argmax(conv[qryIndex])
-    matches_with_seq.append(max_idx)
     annotations_s[max_idx][qryIndex] = 'x'
     if max_idx == qryIndex:
         accuracy_s += 1
 
 #--------------- Save Results ------------------#
 
-# Make new folder for results
-time_stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-results_path = "./results/" + time_stamp
-os.mkdir(results_path)
-
-# Save query and match images 
-images_path = results_path + "/matched_images"
-images_path_seq = results_path + "/matched_images_seq"
-os.mkdir(images_path)
-os.mkdir(images_path_seq)
-plot_match_images(images_path, matches, training_set.place_images, testing_set.place_images)
-plot_match_images(images_path_seq, matches_with_seq, training_set.place_images, testing_set.place_images)
-
-# Save the confusion matrices
-confusion_path = results_path + "/confusion_matrices"
-os.mkdir(confusion_path)
+# Transpose the matricies 
 rate = transpose(rate)
 conv = transpose(conv)
-output_path = confusion_path + "/confusion_matrix" 
-output_path_s = confusion_path + "/confusion_matrix_seq" 
-plot_confusion_matrix(rate, labels, annotations, output_path, vmin, vmax)
-plot_confusion_matrix(conv, labels, annotations_s, output_path_s, vmin, vmax)
 
-# Save GPS map
-
+output_path = "./results/confusion_matrix_" 
+output_path_s = "./results/confusion_matrix_seq_" 
+plotting.plot_confusion_matrix(rate, labels, annotations, output_path, vmin, vmax)
+plotting.plot_confusion_matrix(conv, labels, annotations_s, output_path_s, vmin, vmax)
 
 # Print accuracy!!!
 accuracy = accuracy/num_places
