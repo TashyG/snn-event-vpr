@@ -86,6 +86,12 @@ def load_event_streams(event_streams_to_load, dir_to_load_from=path_to_event_fil
         # event_streams.append(pd.read_parquet(os.path.join(dir_to_load_from, event_stream)))
     return event_streams
 
+def load_event_streams_full(event_streams_to_load):
+    event_streams = []
+    for event_stream in tqdm(event_streams_to_load):
+        event_streams.append(pd.read_parquet(os.path.join(path_to_event_files, event_stream)))
+    return event_streams
+
 
 def get_size(event_stream):
     im_width, im_height = int(event_stream["x"].max() + 1), int(event_stream["y"].max() + 1)
@@ -93,7 +99,9 @@ def get_size(event_stream):
 
 
 def print_duration(event_stream):
-    print(f'Duration: {((event_stream.iloc[-1]["t"] - event_stream.iloc[0]["t"]) / 1e6):.2f}s (which is {len(event_stream)} events)')
+    duration = (event_stream.iloc[-1]["t"] - event_stream.iloc[0]["t"]) / 1e6
+    print(f'Duration: {duration:.2f}s (which is {len(event_stream)} events)')
+    return duration
 
 def print_distance(event_stream):
     print(f'Distance: {((event_stream.iloc[-1]["distance"] - event_stream.iloc[0]["distance"])):.2f}m (which is {len(event_stream)} events)')
@@ -186,7 +194,7 @@ def get_conventional_frames(traverse, desired_times):
     return np.array(conventional_frames)
 
 
-def sync_event_streams(event_streams, traverses_to_compare, gps_gt):
+def sync_event_streams(event_streams, traverses_to_compare, gps_gt=None):
     event_streams_synced = []
     for event_stream_idx, (event_stream, name) in enumerate(zip(event_streams, traverses_to_compare)):
         short_name = get_short_traverse_name(name)
@@ -213,9 +221,12 @@ def sync_event_streams(event_streams, traverses_to_compare, gps_gt):
             event_streams_synced.append(event_stream)
     return event_streams_synced
 
-def get_images_at_start_times(start_times, traverse_name):
+def get_images_at_start_times(start_times, traverse_name, traverse_start_time=None):
     short_name = get_short_traverse_name(traverse_name)
-    start_of_recording = video_beginning[short_name]
+    if traverse_start_time:
+        start_of_recording = traverse_start_time
+    else:  
+        start_of_recording = video_beginning[short_name]
 
     path_to_images = path_to_image_files + short_name + '/frames/'
 
