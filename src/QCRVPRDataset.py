@@ -157,6 +157,7 @@ class QCRVPRDataset(Dataset):
         traverse_name,
         train=True,
         relative_place_times=None,
+        training_duration=None,
         sampling_time=1, 
         samples_per_sec = 1000,
         num_places = 30,
@@ -195,11 +196,13 @@ class QCRVPRDataset(Dataset):
             # Get the start 
             print(start_times)
             self.relative_place_times = start_times/duration
+            self.training_duration = duration
 
             # # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name, event_streams[0]['t'].iloc[0]/1e6)
 
             self.samples = sub_streams
+            self.speed_ratio = 1
             print("The number of training substreams is: " + str(len(self.samples)))
             
             
@@ -215,11 +218,23 @@ class QCRVPRDataset(Dataset):
             start_times = relative_place_times*duration
             print(start_times)
 
+            # Calculate speed ratio if using speed information to determine place duration
+            if training_duration:
+                speed_ratio = duration/training_duration
+                new_place_duration = place_duration #place_duration*speed_ratio
+                self.speed_ratio = speed_ratio
+            else:
+                new_place_duration = place_duration
+                self.speed_ratio = 1
+            print("Place duration " + str(new_place_duration))
+            print("Speed ratio " + str(self.speed_ratio))
+            
+
             # # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name, event_streams[0]['t'].iloc[0]/1e6)
 
             # Get the place samples 
-            sub_streams = filter_and_divide_testing(event_streams[0], x_select, y_select, start_times, place_duration, max_spikes)
+            sub_streams = filter_and_divide_testing(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
             
             self.samples = sub_streams
             print("The number of testing substreams is: " + str(len(self.samples)))
@@ -253,7 +268,7 @@ class QCRVPRDataset(Dataset):
         c_event = self.samples[i]['p'].to_numpy()
         t_event = self.samples[i]['t'].to_numpy()
         #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
-        event = slayer.io.Event(x_event, y_event, c_event, t_event/time_divider)
+        event = slayer.io.Event(x_event, y_event, c_event, (t_event/time_divider)/self.speed_ratio)
 
         # Transform event
         if self.transform is not None:
