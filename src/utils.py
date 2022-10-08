@@ -13,12 +13,14 @@ import cv2
 
 # from scipy.spatial.distance import cdist
 from scipy import interpolate
-
+import sys
 import tonic
 import pynmea2
 
 from tqdm.auto import tqdm
 
+from os import path
+sys.path.append( path.dirname( path.abspath(__file__) ) )
 from constants import (
     time_windows_overwrite,
     path_to_event_files,
@@ -221,18 +223,23 @@ def sync_event_streams(event_streams, traverses_to_compare, gps_gt=None):
             event_streams_synced.append(event_stream)
     return event_streams_synced
 
-def get_images_at_start_times(start_times, traverse_name, traverse_start_time=None):
+def get_images_at_start_times(start_times, traverse_name, traverse_start_time=None, times_are_relative_to_start=True):
     short_name = get_short_traverse_name(traverse_name)
-    if traverse_start_time:
-        start_of_recording = traverse_start_time
-    else:  
-        start_of_recording = video_beginning[short_name]
+
+    if times_are_relative_to_start: 
+        if traverse_start_time:
+            start_of_recording = traverse_start_time
+        else:  
+            start_of_recording = video_beginning[short_name]
 
     path_to_images = path_to_image_files + short_name + '/frames/'
 
     images_at_start_times = [] 
     for start_time in start_times:
-        actual_time = start_of_recording + start_time
+        if times_are_relative_to_start:
+            actual_time = start_of_recording + start_time
+        else:
+            actual_time = start_time
         actual_time_string = '{0:12.1f}'.format(actual_time)
 
         # Get image files starting the start time

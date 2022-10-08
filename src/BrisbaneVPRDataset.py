@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from scipy import interpolate
 from scipy.spatial.distance import cdist
 
+
 from utils import (
     get_gps_speed,
     load_event_streams,

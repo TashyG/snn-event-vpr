@@ -26,7 +26,7 @@ from utils import (
     print_duration,
     get_images_at_start_times
 )
-from constants import qcr_traverses, path_to_gps_files
+from constants import qcr_traverses, path_to_gps_files, synced_times
 
 
 def chopData(event_stream, start_seconds, end_seconds, max_spikes):
@@ -55,8 +55,34 @@ def chopData(event_stream, start_seconds, end_seconds, max_spikes):
 
     return chopped_stream
 
+def chopDataGlobal(event_stream, start_seconds, end_seconds, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
 
-def filter_and_divide_training(event_stream, x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes):
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+    stream_start_time  = event_stream['t'].iloc[0]
+    print(stream_start_time)
+
+    chop_start = start_seconds*1000000
+    chop_end = end_seconds*1000000
+
+    btwn = event_stream['t'].between(chop_start, chop_end, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['t'] -= chop_start
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream
+
+
+def filter_and_divide_with_params(event_stream, x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes):
     """
     Filters a long event stream to have only select pixels in the data and
     then divides the stream up into multiple substreams
@@ -97,7 +123,7 @@ def filter_and_divide_training(event_stream, x_select, y_select, num_places, sta
 
     return sub_streams, start_times
 
-def filter_and_divide_testing(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
+def filter_and_divide_with_times(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
     """
     Filters a long event stream to have only select pixels in the data and
     then divides the stream up into multiple substreams
@@ -134,6 +160,43 @@ def filter_and_divide_testing(event_stream, x_select, y_select, start_times, pla
 
     return sub_streams
 
+
+def filter_and_divide_with_global_times(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
+    """
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
+
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param start_times: Times at which to start extracting place samples in seconds
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples
+    """ 
+
+    # Subselect 34 x 34 pixels evenly spaced out - Create the filters
+    filter0x = event_stream['x'].isin(x_select)
+    filter0y = event_stream['y'].isin(y_select)
+
+    # Apply the filters
+    event_stream = event_stream[filter0x & filter0y]
+
+    # Now reset values to be between 0 and 33
+    for i, x in zip(range(34), x_select):
+        small_filt0x  = event_stream['x'].isin([x])
+        event_stream['x'].loc[small_filt0x] = i
+
+    for i, y in zip(range(34), y_select):
+        small_filt0y  = event_stream['y'].isin([y])
+        event_stream['y'].loc[small_filt0y] = i
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    for start_time in start_times:
+        sub_streams.append(chopDataGlobal(event_stream, start_time, start_time + place_duration, max_spikes))
+
+    return sub_streams
 
 
 
@@ -191,7 +254,7 @@ class QCRVPRDataset(Dataset):
             duration = print_duration(event_streams[0])
 
             # Get the place samples 
-            sub_streams, start_times = filter_and_divide_training(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
+            sub_streams, start_times = filter_and_divide_with_params(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
             
             # Get the start 
             print(start_times)
@@ -234,7 +297,7 @@ class QCRVPRDataset(Dataset):
             self.place_images = get_images_at_start_times(start_times, traverse_name, event_streams[0]['t'].iloc[0]/1e6)
 
             # Get the place samples 
-            sub_streams = filter_and_divide_testing(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
+            sub_streams = filter_and_divide_with_times(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
             
             self.samples = sub_streams
             print("The number of testing substreams is: " + str(len(self.samples)))
@@ -242,6 +305,148 @@ class QCRVPRDataset(Dataset):
         self.place_duration = place_duration # The duration of a place in seconds 
         self.place_gap = place_gap # The time between each place window
         self.num_places = num_places # the number of places
+        self.sampling_time = sampling_time # Default sampling time is 1
+        self.samples_per_sec = samples_per_sec
+        self.transform = transform
+        self.subselect_num = subselect_num
+        
+        #self.num_time_bins = int(sample_length/sampling_time)
+       
+
+    def __getitem__(self, i):
+        
+        # make sure we aren't calling an index out of range
+        assert i < self.num_places, "Index out of range! There are not that many place samples"
+
+        # Find the place label
+        label = int(i % (self.num_places))
+
+        # Find the number of time bins
+        num_time_bins = int(self.place_duration*self.samples_per_sec)
+        time_divider = int(1000000/self.samples_per_sec)
+
+        # Turn the sample stream into events
+        x_event = self.samples[i]['x'].to_numpy()
+        y_event = self.samples[i]['y'].to_numpy()
+        c_event = self.samples[i]['p'].to_numpy()
+        t_event = self.samples[i]['t'].to_numpy()
+        #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
+        event = slayer.io.Event(x_event, y_event, c_event, (t_event/time_divider)/self.speed_ratio)
+
+        # Transform event
+        if self.transform is not None:
+            event = self.transform(event)
+
+        # Turn the events into a tensor 
+        spike = event.fill_tensor(
+                torch.zeros(2, self.subselect_num, self.subselect_num, num_time_bins),
+                sampling_time=self.sampling_time,
+            )
+        
+        return spike.reshape(-1, num_time_bins), label
+
+    def __len__(self):
+        return len(self.samples)
+
+
+class QCRVPRSyncDataset(Dataset):
+    """NMNIST dataset method
+    Parameters
+    ----------
+    train : bool, optional
+        train/test flag, by default True
+    sampling_time : int, optional
+        sampling time of event data, by default 2
+    stream_length : int, optional
+        the length in seconds of traversal that you want to use
+    transform : None or lambda or fx-ptr, optional
+        transformation method. None means no transform. By default None.
+    """
+    def __init__(
+        self,
+        traverse_name,
+        train=True,
+        training_duration=None,
+        sampling_time=1, 
+        samples_per_sec = 1000,
+        place_duration = 0.5,
+        max_spikes=None,
+        subselect_num = 34,
+        transform=None,
+    ):
+        super(QCRVPRSyncDataset, self).__init__()
+
+        # Check input parameters 
+        total_x_pixels = 346
+        total_y_pixels = 260
+
+        x_space = total_x_pixels/subselect_num
+        y_space = total_y_pixels/subselect_num
+
+        # Subselect 34 x 34 pixels evenly spaced out - Create a filter
+        x_select  = [int(i*x_space + x_space/2) for i in range(subselect_num)]
+        y_select  = [int(i*y_space + y_space/2) for i in range(subselect_num)]
+
+        if train:
+            print("Loading training event streams ...")
+
+            # Load the training stream itself and synchronise 
+            event_streams = load_event_streams_full([traverse_name])
+            event_streams = sync_event_streams(event_streams, [traverse_name])
+            duration = print_duration(event_streams[0])
+
+            # Get the start times for the traversal
+            start_times = synced_times[traverse_name]
+            print(start_times)
+
+            # Get the place samples 
+            sub_streams = filter_and_divide_with_global_times(event_streams[0], x_select, y_select, start_times, place_duration, max_spikes)
+            
+            # Save the duration
+            self.training_duration = duration
+
+            # # Get the closest CMOS images at each start time
+            self.place_images = get_images_at_start_times(start_times, traverse_name, times_are_relative_to_start=False)
+
+            self.samples = sub_streams
+            self.speed_ratio = 1
+            print("The number of training substreams is: " + str(len(self.samples)))
+            
+            
+        else:
+
+            # Load the test stream and synchronise
+            event_streams = load_event_streams_full([traverse_name])
+            event_streams = sync_event_streams(event_streams, [traverse_name])
+            duration = print_duration(event_streams[0])
+
+            # Get the start times for the traversal
+            start_times = synced_times[traverse_name]
+            print(start_times)
+
+            # Calculate speed ratio if using speed information to determine place duration
+            if training_duration:
+                speed_ratio = duration/training_duration
+                new_place_duration = place_duration*speed_ratio
+                self.speed_ratio = speed_ratio
+            else:
+                new_place_duration = place_duration
+                self.speed_ratio = 1
+            print("Place duration " + str(new_place_duration))
+            print("Speed ratio " + str(self.speed_ratio))
+            
+
+            # # Get the closest CMOS images at each start time
+            self.place_images = get_images_at_start_times(start_times, traverse_name, times_are_relative_to_start=False)
+
+            # Get the place samples 
+            sub_streams = filter_and_divide_with_global_times(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
+            
+            self.samples = sub_streams
+            print("The number of testing substreams is: " + str(len(self.samples)))
+
+        self.place_duration = place_duration # The duration of a place in seconds 
+        self.num_places = len(start_times) # the number of places
         self.sampling_time = sampling_time # Default sampling time is 1
         self.samples_per_sec = samples_per_sec
         self.transform = transform
