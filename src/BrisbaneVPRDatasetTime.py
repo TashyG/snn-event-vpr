@@ -287,8 +287,12 @@ class BrisbaneVPRDatasetTime(Dataset):
             print_duration(event_stream)
             print_distance(event_stream)
 
+
             # Get the place samples 
             sub_streams, start_times, distances = divide_training(event_stream, num_places, start_dist, place_gap, place_duration, max_spikes)
+
+            #event_frames_no_bursts = [remove_random_bursts(event_frames, threshold=10) for event_frames in event_frames_total]
+
             
             # # Get the interpolated reference gps locations at each start time
             self.place_locations = interpolate_gps(gps_gt[0], start_times)[:, :2]

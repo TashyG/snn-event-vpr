@@ -257,6 +257,7 @@ def get_images_at_start_times(start_times, traverse_name, traverse_start_time=No
    
 
 def remove_random_bursts(event_frames, threshold):
+    print(event_frames[event_frames > threshold])
     event_frames[event_frames > threshold] = threshold
     return event_frames
 

@@ -52,7 +52,8 @@ def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     # Crop the data to the specified number of spikes
     if max_spikes != None:
         chopped_stream = chopped_stream.iloc[0:max_spikes]
-
+    	
+    # print number of events in chopped stream
     return chopped_stream
 
 def chopDataGlobal(event_stream, start_seconds, end_seconds, max_spikes):
