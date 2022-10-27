@@ -52,7 +52,7 @@ def chopData(event_stream, start_seconds, end_seconds, max_spikes):
     # Crop the data to the specified number of spikes
     if max_spikes != None:
         chopped_stream = chopped_stream.iloc[0:max_spikes]
-    	
+
     # print number of events in chopped stream
     return chopped_stream
 
@@ -65,8 +65,8 @@ def chopDataGlobal(event_stream, start_seconds, end_seconds, max_spikes):
     :param max_spikes: The maximum number of spikes that can be in the window
     :return: The event data within the specified time window
     """ 
-    stream_start_time  = event_stream['t'].iloc[0]
-    print(stream_start_time)
+    # stream_start_time  = event_stream['t'].iloc[0]
+    # print(stream_start_time)
 
     chop_start = start_seconds*1000000
     chop_end = end_seconds*1000000
@@ -79,6 +79,8 @@ def chopDataGlobal(event_stream, start_seconds, end_seconds, max_spikes):
     # Crop the data to the specified number of spikes
     if max_spikes != None:
         chopped_stream = chopped_stream.iloc[0:max_spikes]
+        print(chopped_stream['t'].iloc[max_spikes-1]/1000000)
+
 
     return chopped_stream
 
@@ -119,7 +121,9 @@ def filter_and_divide_with_params(event_stream, x_select, y_select, num_places, 
     sub_streams = []
     start_times = []
     for i in range(0,num_places):
-        sub_streams.append(chopData(event_stream, start_time + i*place_gap, start_time + i*place_gap + place_duration, max_spikes))
+        sub_stream = chopData(event_stream, start_time + i*place_gap, start_time + i*place_gap + place_duration, max_spikes)
+        print_duration(sub_stream)
+        sub_streams.append(sub_stream)
         start_times.append((start_time + i*place_gap))
 
     return sub_streams, start_times
@@ -194,8 +198,13 @@ def filter_and_divide_with_global_times(event_stream, x_select, y_select, start_
 
     # Divide the test stream into 2 second windows
     sub_streams = []
+    average_spikes = 0
     for start_time in start_times:
-        sub_streams.append(chopDataGlobal(event_stream, start_time, start_time + place_duration, max_spikes))
+        substream = chopDataGlobal(event_stream, start_time, start_time + place_duration, max_spikes)
+        average_spikes += len(substream)
+        sub_streams.append(substream)
+
+    print("average spikes = " + str(average_spikes/len(start_times)))
 
     return sub_streams
 
@@ -220,8 +229,8 @@ class QCRVPRDataset(Dataset):
         self,
         traverse_name,
         train=True,
-        relative_place_times=None,
-        training_duration=None,
+        # relative_place_times=None,
+        # training_duration=None,
         sampling_time=1, 
         samples_per_sec = 1000,
         num_places = 30,
@@ -256,49 +265,53 @@ class QCRVPRDataset(Dataset):
 
             # Get the place samples 
             sub_streams, start_times = filter_and_divide_with_params(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
+            print(start_times)
             
             # Get the start 
-            print(start_times)
-            self.relative_place_times = start_times/duration
-            self.training_duration = duration
+            # print(start_times)
+            # self.relative_place_times = start_times/duration
+            # self.training_duration = duration
 
             # # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name, event_streams[0]['t'].iloc[0]/1e6)
 
             self.samples = sub_streams
-            self.speed_ratio = 1
+            #self.speed_ratio = 1
             print("The number of training substreams is: " + str(len(self.samples)))
             
             
         else:
-            assert relative_place_times is not None, "Must provide relative place times"
+            # assert relative_place_times is not None, "Must provide relative place times"
         	
             # Load the test stream and synchronise
             event_streams = load_event_streams_full([traverse_name])
             event_streams = sync_event_streams(event_streams, [traverse_name])
             duration = print_duration(event_streams[0])
 
-            # Estimate the closest locations in test dataset to training dataset and get their start_times 
-            start_times = relative_place_times*duration
-            print(start_times)
+            # # Estimate the closest locations in test dataset to training dataset and get their start_times 
+            # start_times = relative_place_times*duration
+            # print(start_times)
 
-            # Calculate speed ratio if using speed information to determine place duration
-            if training_duration:
-                speed_ratio = duration/training_duration
-                new_place_duration = place_duration #place_duration*speed_ratio
-                self.speed_ratio = speed_ratio
-            else:
-                new_place_duration = place_duration
-                self.speed_ratio = 1
-            print("Place duration " + str(new_place_duration))
-            print("Speed ratio " + str(self.speed_ratio))
+            # # Calculate speed ratio if using speed information to determine place duration
+            # if training_duration:
+            #     speed_ratio = duration/training_duration
+            #     new_place_duration = place_duration #place_duration*speed_ratio
+            #     self.speed_ratio = speed_ratio
+            # else:
+            #     new_place_duration = place_duration
+            #     self.speed_ratio = 1
+            # print("Place duration " + str(new_place_duration))
+            # print("Speed ratio " + str(self.speed_ratio))
             
+
+
+            # Get the place samples 
+            sub_streams, start_times = filter_and_divide_with_params(event_streams[0], x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes)
+            print(start_times)
 
             # # Get the closest CMOS images at each start time
             self.place_images = get_images_at_start_times(start_times, traverse_name, event_streams[0]['t'].iloc[0]/1e6)
 
-            # Get the place samples 
-            sub_streams = filter_and_divide_with_times(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
             
             self.samples = sub_streams
             print("The number of testing substreams is: " + str(len(self.samples)))
@@ -332,7 +345,7 @@ class QCRVPRDataset(Dataset):
         c_event = self.samples[i]['p'].to_numpy()
         t_event = self.samples[i]['t'].to_numpy()
         #event = slayer.io.Event(x_event, y_event, c_event, t_event/1000)
-        event = slayer.io.Event(x_event, y_event, c_event, (t_event/time_divider)/self.speed_ratio)
+        event = slayer.io.Event(x_event, y_event, c_event, (t_event/time_divider))
 
         # Transform event
         if self.transform is not None:
@@ -429,7 +442,7 @@ class QCRVPRSyncDataset(Dataset):
             if training_duration:
                 speed_ratio = duration/training_duration
                 new_place_duration = place_duration*speed_ratio
-                self.speed_ratio = speed_ratio
+                self.speed_ratio = 1 #speed_ratio
             else:
                 new_place_duration = place_duration
                 self.speed_ratio = 1
@@ -442,6 +455,7 @@ class QCRVPRSyncDataset(Dataset):
 
             # Get the place samples 
             sub_streams = filter_and_divide_with_global_times(event_streams[0], x_select, y_select, start_times, new_place_duration, max_spikes)
+            place_duration = new_place_duration
             
             self.samples = sub_streams
             print("The number of testing substreams is: " + str(len(self.samples)))
@@ -452,6 +466,7 @@ class QCRVPRSyncDataset(Dataset):
         self.samples_per_sec = samples_per_sec
         self.transform = transform
         self.subselect_num = subselect_num
+        self.train = train
         
         #self.num_time_bins = int(sample_length/sampling_time)
        
@@ -467,6 +482,8 @@ class QCRVPRSyncDataset(Dataset):
         # Find the number of time bins
         num_time_bins = int(self.place_duration*self.samples_per_sec)
         time_divider = int(1000000/self.samples_per_sec)
+
+
 
         # Turn the sample stream into events
         x_event = self.samples[i]['x'].to_numpy()

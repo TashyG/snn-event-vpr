@@ -244,6 +244,9 @@ def get_images_at_start_times(start_times, traverse_name, traverse_start_time=No
 
         # Get image files starting the start time
         closest_timestamp_paths = glob.glob(path_to_images + actual_time_string + '*.png')
+        if len(closest_timestamp_paths) == 0:
+            actual_time_string = actual_time_string[:-1]
+            closest_timestamp_paths = glob.glob(path_to_images + actual_time_string + '*.png')
         closest_timestamps = []
         for close_timestamp in closest_timestamp_paths:
             close_timestamp = re.findall('[0-9]+[.][0-9]+', close_timestamp)

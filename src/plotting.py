@@ -22,8 +22,8 @@ def plot_confusion_matrix(data, labels, annotations, output_filename, vmin, vmax
  
     seaborn.set(font_scale=1.4)
 
-    ax = seaborn.heatmap(data, annot=annotations, annot_kws={'fontsize': 'xx-small'}, fmt='', cbar_kws={'label': 'Scale'},
-                  linewidths=0.1, linecolor='gray')
+    ax = seaborn.heatmap(data, annot=annotations, annot_kws={'fontsize': 'xx-small'}, fmt='',cbar_kws={'label': 'Confidence'},
+                  linewidths=0.1, vmin=vmin, vmax=vmax, linecolor='gray') #robust=True
     #vmin=vmin, vmax=vmax,
     #vmin=0, vmax=0.3,
     labels = [label.get_text() for label in ax.get_yticklabels()]

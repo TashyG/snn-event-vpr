@@ -18,7 +18,7 @@ from scipy.spatial.distance import cdist
 
 from utils import (
     get_gps_speed,
-    load_event_streams,
+    load_event_streams_full,
     sync_event_streams,
     get_short_traverse_name,
     get_gps,
@@ -37,7 +37,7 @@ for traverse in [4]:
         tqdm.write("Adding GPS")
         gps_gt.append(get_gps(path_to_gps_files + get_short_traverse_name(brisbane_event_traverses[traverse]) + ".nmea"))
 
-    event_streams = load_event_streams([brisbane_event_traverses[traverse]])
+    event_streams = load_event_streams_full([brisbane_event_traverses[traverse]])
     event_streams = sync_event_streams(event_streams, [brisbane_event_traverses[traverse]], gps_gt)
     event_stream  = event_streams[0]
     print_duration(event_stream)
