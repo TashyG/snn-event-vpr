@@ -1,3 +1,5 @@
+# Code adapted from https://github.com/Tobias-Fischer/salient-event-vpr
+
 import os
 import re
 import glob
@@ -18,6 +20,7 @@ import tonic
 import pynmea2
 
 from tqdm.auto import tqdm
+from scipy.spatial.distance import cdist
 
 from os import path
 sys.path.append( path.dirname( path.abspath(__file__) ) )
@@ -338,42 +341,6 @@ def get_gps(nmea_file_path):
     return np.array(np.vstack((latitudes, longitudes, timestamps, distances))).T
 
 
-# def get_gps(nmea_file_path):
-#     nmea_file = open(nmea_file_path, encoding="utf-8")
-
-#     latitudes, longitudes, timestamps, distances = [], [], [], []
-
-#     first_timestamp = None
-#     previous_lat, previous_lon = None, None
-
-#     for line in nmea_file.readlines():
-#         try:
-#             msg = pynmea2.parse(line)
-#             if msg.sentence_type not in ["GSV", "VTG", "GSA"]:
-#                 if first_timestamp is None:
-#                     first_timestamp = msg.timestamp
-#                     previous_lat, previous_lon = msg.latitude, msg.longitude
-#                     prev_dist = 0
-
-#                 # print(msg.timestamp, msg.latitude, msg.longitude)
-#                 # print(repr(msg.latitude))
-#                 dist_to_prev = np.linalg.norm(np.array([msg.latitude, msg.longitude]) - np.array([previous_lat, previous_lon]))*100000
-#                 if msg.latitude != 0 and msg.longitude != 0 and msg.latitude != previous_lat and msg.longitude != previous_lon and dist_to_prev > 0.0001:
-#                     timestamp_diff = (msg.timestamp.hour - first_timestamp.hour) * 3600 + (msg.timestamp.minute - first_timestamp.minute) * 60 + (msg.timestamp.second - first_timestamp.second)
-#                     latitudes.append(msg.latitude)
-#                     longitudes.append(msg.longitude)
-#                     timestamps.append(timestamp_diff)
-#                     next_dist = prev_dist + dist_to_prev
-#                     distances.append(next_dist)  # noqa
-#                     previous_lat, previous_lon = msg.latitude, msg.longitude
-#                     prev_dist = next_dist
-
-#         except pynmea2.ParseError as e:  # noqa
-#             # print('Parse error: {} {}'.format(msg.sentence_type, e))
-#             continue
-
-#     return np.array(np.vstack((latitudes, longitudes, timestamps, distances))).T
-
 
 def get_gps_speed(nmea_file_path):
     nmea_file = open(nmea_file_path, encoding="utf-8")
@@ -514,3 +481,311 @@ def shift_image(X, dx, dy):
     elif dx < 0:
         X[:, dx:] = 0
     return X
+
+
+def chopDataTimeTime(event_stream, start_seconds, end_seconds, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream
+
+    :param event_stream: Dataframe object containing a stream of events
+    :param start_seconds: The start time of the window
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    stream_start_time  = event_stream['t'].iloc[0]
+
+    chop_start = stream_start_time + start_seconds*1000000
+    chop_end = stream_start_time + end_seconds*1000000 -1
+
+    btwn = event_stream['t'].between(chop_start, chop_end, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['t'] -= chop_start
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream
+
+def chopDataDistTime(event_stream, start_distance, place_duration, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream starting at
+    a particular distance.
+    
+    :param event_stream: Dataframe object containing a stream of events. Dataframe must have a distance parameter
+    :param start_distance: The start distance of when to start extracting events
+    :param end_seconds: The end time of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    stream_start_time  = event_stream['t'].iloc[0]
+
+    # Get closest time for the starting distance
+    time_at_start_dist = event_stream.loc[event_stream['distance'] >= start_distance]['t'].iloc[0]
+
+    chop_start = time_at_start_dist
+    chop_end = chop_start + place_duration*1000000 -1
+
+    btwn = event_stream['t'].between(chop_start, chop_end, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['t'] -= chop_start
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+
+    return chopped_stream, (chop_start - stream_start_time)/1000000
+
+
+def chopDataGlobal(event_stream, start_seconds, end_seconds, max_spikes):
+    """
+    Gets a specific time window of event data out of an event stream using
+    global start times rather than relative start times
+
+    :param start_seconds: The start timestamp of the window
+    :param end_seconds: The end timestamp of the window
+    :param max_spikes: The maximum number of spikes that can be in the window
+    :return: The event data within the specified time window
+    """ 
+
+    chop_start = start_seconds*1000000
+    chop_end = end_seconds*1000000
+
+    btwn = event_stream['t'].between(chop_start, chop_end, inclusive='both')
+    chopped_stream = event_stream[btwn]
+
+    chopped_stream['t'] -= chop_start
+
+    # Crop the data to the specified number of spikes
+    if max_spikes != None:
+        chopped_stream = chopped_stream.iloc[0:max_spikes]
+        print(chopped_stream['t'].iloc[max_spikes-1]/1000000)
+
+
+    return chopped_stream
+
+
+def find_closest_matches(training_locations, test_gps_data):
+    """
+    Finds the closest matching GPS locations (and their corresponding times) in the 
+    testing data to the selected GPS locations in the training data
+
+    :param training_locations: the lat and long coords of the chosen places in the training data 
+    :param test_gps_data: the gps data of the test dataset 
+    :return: the times of the estimated closest matches and their gps coords
+    """ 
+
+    # Separate test gps coordinates and times
+    test_locations = test_gps_data[:, :2]
+    test_times = test_gps_data[:,2]
+
+    # Find the two closest test gps locations and their corresponding times for each training location
+    distance_matrix = cdist(training_locations, test_locations)
+    closest_inds = np.argsort(distance_matrix,axis=1)[:,:2]
+    closest_ranges = test_times[closest_inds]
+    
+    # Search between the closest gps locations for a more accurate match
+    times = []
+    closest_test_locs = []
+    for closest_range, training_location in zip(closest_ranges, training_locations):
+        # Make sure earlier time is at the start
+        closest_range = np.sort(closest_range)
+
+        # Break down the time range found into smaller time steps
+        locs_within_range = interpolate_gps(test_gps_data, np.arange(closest_range[0], closest_range[1]+0.01, 0.01))[:,:2]
+
+        # Find the closest location match out of the smaller time steps and its corresponing time
+        distance_matrix = cdist([training_location], locs_within_range)
+        closest_match = np.argsort(distance_matrix,axis=1)[:,:1][0][0]
+        time_of_closest_match = closest_range[0] + closest_match*0.01
+        loc_of_closest_match = locs_within_range[closest_match]
+        times.append(time_of_closest_match)
+        closest_test_locs.append(loc_of_closest_match)
+
+    return times, np.array(closest_test_locs)
+
+
+
+def divide_training(event_stream, num_places, start_dist, place_gap, place_duration, max_spikes):
+    """
+    Divide up an event stream (already filtered) into place samples
+    
+    :param event_stream: Dataframe object containing a stream of events. Dataframe must have a distance parameter
+    :num_places: The number of place samples to extract
+    :param start_dist: The first distance at which to start extracting place samples
+    :param place_gap: The distance between places
+    :param place_duration: The event accumulation time window for the place samples
+    :param max_spikes: maximum amount of spike allowed in a place sample
+    :return: The event data within the specified time window
+    """ 
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    start_times = []
+    distances = []
+    for i in range(0,num_places):
+        sub_stream, start_time = chopDataDistTime(event_stream, start_dist + i*place_gap, place_duration, max_spikes)
+        print("Place: " + str(i))
+        print_distance(sub_stream)
+        sub_streams.append(sub_stream)
+        start_times.append(start_time)
+        distances.append(sub_stream.iloc[-1]["distance"] - sub_stream.iloc[0]["distance"])
+
+    return sub_streams, start_times, distances
+
+def divide_testing(event_stream, start_times, place_duration, max_spikes):
+    """
+    Divide up an event stream (already filtered) into place samples
+    
+    :param event_stream: Dataframe object containing a stream of events. 
+    :num_places: The number of place samples to extract
+    :param start_times: The start times of the place samples
+    :param place_duration: The event accumulation time window for the place samples
+    :param max_spikes: maximum amount of spike allowed in a place sample
+    :return: The event data within the specified time window
+    """ 
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    distances = []
+    counter = 0
+    for start_time in start_times:
+        sub_stream = chopDataTimeTime(event_stream, start_time, start_time + place_duration, max_spikes)
+        print("Place: " + str(counter))
+        counter+=1
+        print_distance(sub_stream)
+        sub_streams.append(sub_stream)
+        distances.append(sub_stream.iloc[-1]["distance"] - sub_stream.iloc[0]["distance"])
+
+    return sub_streams, distances
+
+
+
+
+def filter_and_divide_with_params(event_stream, x_select, y_select, num_places, start_time, place_gap, place_duration, max_spikes):
+    """
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
+
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param num_places: The number of place samples to extract (starting from the start of the event stream)
+    :param start_time: Time at which to start extracting place samples in seconds
+    :param place_gap: The time gap in seconds between the start of each place sample
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples & The start times of each place sample
+    """ 
+
+    # Subselect 34 x 34 pixels evenly spaced out - Create the filters
+    filter0x = event_stream['x'].isin(x_select)
+    filter0y = event_stream['y'].isin(y_select)
+
+    # Apply the filters
+    event_stream = event_stream[filter0x & filter0y]
+
+    # Now reset values to be between 0 and 33
+    for i, x in zip(range(34), x_select):
+        small_filt0x  = event_stream['x'].isin([x])
+        event_stream['x'].loc[small_filt0x] = i
+
+    for i, y in zip(range(34), y_select):
+        small_filt0y  = event_stream['y'].isin([y])
+        event_stream['y'].loc[small_filt0y] = i
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    start_times = []
+    for i in range(0,num_places):
+        sub_stream = chopDataTimeTime(event_stream, start_time + i*place_gap, start_time + i*place_gap + place_duration, max_spikes)
+        print_duration(sub_stream)
+        sub_streams.append(sub_stream)
+        start_times.append((start_time + i*place_gap))
+
+    return sub_streams, start_times
+
+def filter_and_divide_with_times(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
+    """
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
+
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param start_times: Times at which to start extracting place samples in seconds
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples
+    """ 
+
+    # Subselect 34 x 34 pixels evenly spaced out - Create the filters
+    filter0x = event_stream['x'].isin(x_select)
+    filter0y = event_stream['y'].isin(y_select)
+
+    # Apply the filters
+    event_stream = event_stream[filter0x & filter0y]
+
+    # Now reset values to be between 0 and 33
+    for i, x in zip(range(34), x_select):
+        small_filt0x  = event_stream['x'].isin([x])
+        event_stream['x'].loc[small_filt0x] = i
+
+    for i, y in zip(range(34), y_select):
+        small_filt0y  = event_stream['y'].isin([y])
+        event_stream['y'].loc[small_filt0y] = i
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    for start_time in start_times:
+        sub_streams.append(chopDataTimeTime(event_stream, start_time, start_time + place_duration, max_spikes))
+
+    return sub_streams
+
+
+def filter_and_divide_with_global_times(event_stream, x_select, y_select, start_times, place_duration, max_spikes):
+    """
+    Filters a long event stream to have only select pixels in the data and
+    then divides the stream up into multiple substreams
+
+    :param event_stream: The stream of events, a DataFrame object 
+    :param x_select: The x pixel positions to be included (all others are fitlered out)
+    :param y_select: The y pixel positions to be included (all others are filtered out)
+    :param start_times: Times at which to start extracting place samples in seconds
+    :param place_duration: The duration of each place sample in seconds
+    :param max_spikes: The maximum number of spikes that can be in a place sample
+    :return: The filtered substreams/place samples
+    """ 
+
+    # Subselect 34 x 34 pixels evenly spaced out - Create the filters
+    filter0x = event_stream['x'].isin(x_select)
+    filter0y = event_stream['y'].isin(y_select)
+
+    # Apply the filters
+    event_stream = event_stream[filter0x & filter0y]
+
+    # Now reset values to be between 0 and 33
+    for i, x in zip(range(34), x_select):
+        small_filt0x  = event_stream['x'].isin([x])
+        event_stream['x'].loc[small_filt0x] = i
+
+    for i, y in zip(range(34), y_select):
+        small_filt0y  = event_stream['y'].isin([y])
+        event_stream['y'].loc[small_filt0y] = i
+
+    # Divide the test stream into 2 second windows
+    sub_streams = []
+    average_spikes = 0
+    for start_time in start_times:
+        substream = chopDataGlobal(event_stream, start_time, start_time + place_duration, max_spikes)
+        average_spikes += len(substream)
+        sub_streams.append(substream)
+
+    print("average spikes = " + str(average_spikes/len(start_times)))
+
+    return sub_streams

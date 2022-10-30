@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 from torch.utils.data import Dataset, DataLoader
-import os
+import os 
 
 import lava.lib.dl.slayer as slayer
 import torch
@@ -15,20 +15,18 @@ from matplotlib import animation
 import matplotlib.pyplot as plt
 from scipy import interpolate
 from scipy.spatial.distance import cdist
+import sys 
 
-from utils import (
-    get_gps_speed,
+sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
+from src.utils import (
     load_event_streams_full,
     sync_event_streams,
     get_short_traverse_name,
     get_gps,
     print_duration,
-    interpolate_gps,
-    interpolate_gps_speed,
     interpolate_gps_distance,
-    get_images_at_start_times
 )
-from constants import brisbane_event_traverses, path_to_gps_files, path_to_pickles
+from src.constants import brisbane_event_traverses, path_to_gps_files, path_to_pickles
 
 
 for traverse in [4]:
